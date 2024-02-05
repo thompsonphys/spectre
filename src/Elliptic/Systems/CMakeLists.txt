@@ -21,4 +21,5 @@ target_link_libraries(
 add_subdirectory(Elasticity)
 add_subdirectory(Poisson)
 add_subdirectory(Punctures)
+add_subdirectory(SelfForce)
 add_subdirectory(Xcts)

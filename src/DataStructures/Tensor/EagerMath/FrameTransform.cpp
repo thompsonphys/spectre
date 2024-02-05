@@ -416,7 +416,8 @@ GENERATE_INSTANTIATIONS(INSTANTIATE, (1, 2, 3), (Frame::Inertial),
               tnsr::TENSOR(data) < DTYPE(data), DIM(data), DESTFRAME(data)>>,  \
       DIM(data), UpLo::Up, SRCFRAME(data) > ;
 GENERATE_INSTANTIATIONS(INSTANTIATE, (1, 2, 3), (Frame::ElementLogical),
-                        (Frame::Inertial), (double, DataVector), (I, II, Ij))
+                        (Frame::Inertial), (double, DataVector),
+                        (I, II, Ij, IJ))
 
 #undef DIM
 #undef SRCFRAME

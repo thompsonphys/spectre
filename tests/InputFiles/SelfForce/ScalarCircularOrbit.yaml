@@ -1,0 +1,119 @@
+# Distributed under the MIT License.
+# See LICENSE.txt for details.
+
+Executable: SolveScalarSelfForce
+Testing:
+  Check: parse
+ExpectedOutput:
+  - ScalarSelfForceReductions.h5
+  - ScalarSelfForceVolume0.h5
+
+---
+
+Background: &background
+  CircularOrbit:
+    ScalarCharge: &scalar_charge 1.
+    BlackHoleMass: &bh_mass 1.
+    BlackHoleSpin: &bh_spin 0.9
+    OrbitalRadius: &orbital_radius 6.
+    MModeNumber: &m_mode_number 0
+
+InitialGuess: *background
+
+RandomizeInitialGuess: None
+
+DomainCreator:
+  Rectangle:
+    # Order of dimensions is (r_*, theta)
+    LowerBound: [-50., 0.]
+    UpperBound: [150., 3.141592653589793]
+    InitialRefinement: [4, 1]
+    InitialGridPoints: [6, 6]
+    TimeDependence: None
+    # Radial boundary conditions
+    BoundaryConditionInX:
+      # Ingoing near horizon
+      LowerBoundaryCondition:
+        Sommerfeld:
+          BlackHoleMass: *bh_mass
+          BlackHoleSpin: *bh_spin
+          OrbitalRadius: *orbital_radius
+          MModeNumber: *m_mode_number
+          Outgoing: False
+      # Outgoing far away
+      UpperBoundaryCondition:
+        Sommerfeld:
+          BlackHoleMass: *bh_mass
+          BlackHoleSpin: *bh_spin
+          OrbitalRadius: *orbital_radius
+          MModeNumber: *m_mode_number
+          Outgoing: True
+    # Angular boundary conditions
+    BoundaryConditionInY:
+      Angular:
+        MModeNumber: *m_mode_number
+
+Discretization:
+  DiscontinuousGalerkin:
+    PenaltyParameter: 1.
+    Massive: True
+    Quadrature: Gauss
+    Formulation: StrongInertial
+
+Observers:
+  VolumeFileName: "ScalarSelfForceVolume"
+  ReductionFileName: "ScalarSelfForceReductions"
+
+LinearSolver:
+  Gmres:
+    ConvergenceCriteria:
+      MaxIterations: 100
+      RelativeResidual: 1.e-6
+      AbsoluteResidual: 1.e-12
+    Verbosity: Quiet
+
+  Multigrid:
+    Iterations: 1
+    MaxLevels: Auto
+    PreSmoothing: True
+    PostSmoothingAtBottom: False
+    Verbosity: Silent
+    OutputVolumeData: False
+
+  SchwarzSmoother:
+    Iterations: 3
+    MaxOverlap: 2
+    Verbosity: Silent
+    SubdomainSolver:
+      # TODO: Reconsider this
+      ExplicitInverse:
+        WriteMatrixToFile: None
+    ObservePerCoreReductions: False
+
+EventsAndTriggers:
+  - Trigger: Always
+    Events:
+      - ObserveFields:
+          SubfileName: VolumeData
+          VariablesToObserve:
+            - MMode
+            - FixedSource(MMode)
+            - Alpha
+            - Beta
+            - Gamma
+          InterpolateToMesh: None
+          CoordinatesFloatingPointType: Double
+          FloatingPointTypes: [Double]
+
+PhaseChangeAndTriggers: []
+
+BuildMatrix:
+  MatrixSubfileName: Matrix
+  Verbosity: Verbose
+
+Parallelization:
+  ElementDistribution: NumGridPoints
+
+ResourceInfo:
+  AvoidGlobalProc0: false
+  Singletons: Auto
