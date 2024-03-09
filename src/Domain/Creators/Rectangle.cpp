@@ -46,7 +46,10 @@ Rectangle::Rectangle(
       initial_refinement_level_xy_(initial_refinement_level_xy),
       initial_number_of_grid_points_in_xy_(initial_number_of_grid_points_in_xy),
       time_dependence_(std::move(time_dependence)),
-      boundary_condition_(nullptr) {
+      boundary_condition_in_lower_x_(nullptr),
+      boundary_condition_in_upper_x_(nullptr),
+      boundary_condition_in_lower_y_(nullptr),
+      boundary_condition_in_upper_y_(nullptr) {
   if (time_dependence_ == nullptr) {
     time_dependence_ =
         std::make_unique<domain::creators::time_dependence::None<2>>();
@@ -58,7 +61,13 @@ Rectangle::Rectangle(
     std::array<size_t, 2> initial_refinement_level_xy,
     std::array<size_t, 2> initial_number_of_grid_points_in_xy,
     std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
-        boundary_condition,
+        boundary_condition_in_lower_x,
+    std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+        boundary_condition_in_upper_x,
+    std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+        boundary_condition_in_lower_y,
+    std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+        boundary_condition_in_upper_y,
     std::unique_ptr<domain::creators::time_dependence::TimeDependence<2>>
         time_dependence,
     const Options::Context& context)
@@ -68,21 +77,44 @@ Rectangle::Rectangle(
       initial_refinement_level_xy_(initial_refinement_level_xy),
       initial_number_of_grid_points_in_xy_(initial_number_of_grid_points_in_xy),
       time_dependence_(std::move(time_dependence)),
-      boundary_condition_(std::move(boundary_condition)) {
+      boundary_condition_in_lower_x_(std::move(boundary_condition_in_lower_x)),
+      boundary_condition_in_upper_x_(std::move(boundary_condition_in_upper_x)),
+      boundary_condition_in_lower_y_(std::move(boundary_condition_in_lower_y)),
+      boundary_condition_in_upper_y_(std::move(boundary_condition_in_upper_y)) {
   if (time_dependence_ == nullptr) {
     time_dependence_ =
         std::make_unique<domain::creators::time_dependence::None<2>>();
   }
   using domain::BoundaryConditions::is_none;
-  if (is_none(boundary_condition_)) {
+  ASSERT(boundary_condition_in_lower_x_ != nullptr and
+             boundary_condition_in_upper_x_ != nullptr and
+             boundary_condition_in_lower_y_ != nullptr and
+             boundary_condition_in_upper_y_ != nullptr,
+         "None of the boundary conditions can be nullptr.");
+  if (is_none(boundary_condition_in_lower_x_) or
+      is_none(boundary_condition_in_upper_x_) or
+      is_none(boundary_condition_in_lower_y_) or
+      is_none(boundary_condition_in_upper_y_)) {
     PARSE_ERROR(
         context,
         "None boundary condition is not supported. If you would like an "
         "outflow-type boundary condition, you must use that.");
   }
   using domain::BoundaryConditions::is_periodic;
-  if (is_periodic(boundary_condition_)) {
+  if ((is_periodic(boundary_condition_in_lower_x_) !=
+       is_periodic(boundary_condition_in_upper_x_)) or
+      (is_periodic(boundary_condition_in_lower_y_) !=
+       is_periodic(boundary_condition_in_upper_y_))) {
+    PARSE_ERROR(context,
+                "Periodic boundary condition must be applied for both "
+                "upper and lower direction.");
+  }
+  if (is_periodic(boundary_condition_in_lower_x_) and
+      is_periodic(boundary_condition_in_upper_x_)) {
     is_periodic_in_xy_[0] = true;
+  }
+  if (is_periodic(boundary_condition_in_lower_y_) and
+      is_periodic(boundary_condition_in_upper_y_)) {
     is_periodic_in_xy_[1] = true;
   }
 }
@@ -119,17 +151,27 @@ Domain<2> Rectangle::create_domain() const {
 std::vector<DirectionMap<
     2, std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>>>
 Rectangle::external_boundary_conditions() const {
-  if (boundary_condition_ == nullptr) {
+  if (boundary_condition_in_lower_x_ == nullptr) {
+    ASSERT(boundary_condition_in_upper_x_ == nullptr and
+               boundary_condition_in_lower_y_ == nullptr and
+               boundary_condition_in_upper_y_ == nullptr,
+           "Boundary conditions must be specified in all or no directions");
     return {};
   }
   std::vector<DirectionMap<
       2, std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>>>
       boundary_conditions{1};
-  if (is_periodic_in_xy_[0]) {
-    return boundary_conditions;
+  if (not is_periodic_in_xy_[0]) {
+    boundary_conditions[0][Direction<2>{0, Side::Lower}] =
+        boundary_condition_in_lower_x_->get_clone();
+    boundary_conditions[0][Direction<2>{0, Side::Upper}] =
+        boundary_condition_in_upper_x_->get_clone();
   }
-  for (const auto& direction : Direction<2>::all_directions()) {
-    boundary_conditions[0][direction] = boundary_condition_->get_clone();
+  if (not is_periodic_in_xy_[1]) {
+    boundary_conditions[0][Direction<2>{1, Side::Lower}] =
+        boundary_condition_in_lower_y_->get_clone();
+    boundary_conditions[0][Direction<2>{1, Side::Upper}] =
+        boundary_condition_in_upper_y_->get_clone();
   }
   return boundary_conditions;
 }

@@ -82,12 +82,44 @@ class Rectangle : public DomainCreator<2> {
     static constexpr Options::String help = {
         "The time dependence of the moving mesh domain."};
   };
+
   template <typename BoundaryConditionsBase>
-  struct BoundaryCondition {
-    static std::string name() { return "BoundaryCondition"; }
+  struct LowerUpperBoundaryCondition {
     static constexpr Options::String help =
-        "The boundary condition to impose on all sides.";
-    using type = std::unique_ptr<BoundaryConditionsBase>;
+        "Lower and upper Boundary Conditions";
+    struct LowerBC {
+      using type = std::unique_ptr<BoundaryConditionsBase>;
+      static constexpr Options::String help = "Lower Boundary Condition";
+      static std::string name() { return "LowerBoundaryCondition"; };
+    };
+    struct UpperBC {
+      using type = std::unique_ptr<BoundaryConditionsBase>;
+      static constexpr Options::String help = "Upper Boundary Condition";
+      static std::string name() { return "UpperBoundaryCondition"; };
+    };
+    LowerUpperBoundaryCondition(typename LowerBC::type lower_bc,
+                                typename UpperBC::type upper_bc)
+        : lower(std::move(lower_bc)), upper(std::move(upper_bc)){};
+    LowerUpperBoundaryCondition() = default;
+    std::unique_ptr<BoundaryConditionsBase> lower;
+    std::unique_ptr<BoundaryConditionsBase> upper;
+    using options = tmpl::list<LowerBC, UpperBC>;
+  };
+
+  template <typename BoundaryConditionsBase, size_t Dim>
+  struct BoundaryCondition {
+    static std::string name() {
+      return "BoundaryConditionIn" +
+             std::string{Dim == 0 ? 'X' : (Dim == 1 ? 'Y' : 'Z')};
+    };
+    static constexpr Options::String help = {
+        "The boundary condition to be imposed for boundaries at "
+        "the given direction. Either specify one B.C. to be imposed for both "
+        "lower and upper boundary or a pair of B.C. for lower and upper "
+        "boundary respectively."};
+    using type =
+        std::variant<std::unique_ptr<BoundaryConditionsBase>,
+                     LowerUpperBoundaryCondition<BoundaryConditionsBase>>;
   };
 
   using common_options =
@@ -101,9 +133,14 @@ class Rectangle : public DomainCreator<2> {
       tmpl::conditional_t<
           domain::BoundaryConditions::has_boundary_conditions_base_v<
               typename Metavariables::system>,
-          tmpl::list<BoundaryCondition<
-              domain::BoundaryConditions::get_boundary_conditions_base<
-                  typename Metavariables::system>>>,
+          tmpl::list<BoundaryCondition<domain::BoundaryConditions::
+                                           get_boundary_conditions_base<
+                                               typename Metavariables::system>,
+                                       0>,
+                     BoundaryCondition<domain::BoundaryConditions::
+                                           get_boundary_conditions_base<
+                                               typename Metavariables::system>,
+                                       1>>,
           options_periodic>,
       tmpl::list<TimeDependence>>;
 
@@ -122,7 +159,28 @@ class Rectangle : public DomainCreator<2> {
       std::array<size_t, 2> initial_refinement_level_xy,
       std::array<size_t, 2> initial_number_of_grid_points_in_xy,
       std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
-          boundary_condition,
+          boundary_condition_in_lower_x,
+      std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+          boundary_condition_in_upper_x,
+      std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+          boundary_condition_in_lower_y,
+      std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+          boundary_condition_in_upper_y,
+      std::unique_ptr<domain::creators::time_dependence::TimeDependence<2>>
+          time_dependence,
+      const Options::Context& context = {});
+
+  template <typename BoundaryConditionsBase>
+  Rectangle(
+      std::array<double, 2> lower_xy, std::array<double, 2> upper_xy,
+      std::array<size_t, 2> initial_refinement_level_xy,
+      std::array<size_t, 2> initial_number_of_grid_points_in_xy,
+      std::variant<std::unique_ptr<BoundaryConditionsBase>,
+                   LowerUpperBoundaryCondition<BoundaryConditionsBase>>
+          boundary_conditions_in_x,
+      std::variant<std::unique_ptr<BoundaryConditionsBase>,
+                   LowerUpperBoundaryCondition<BoundaryConditionsBase>>
+          boundary_conditions_in_y,
       std::unique_ptr<domain::creators::time_dependence::TimeDependence<2>>
           time_dependence,
       const Options::Context& context = {});
@@ -161,8 +219,74 @@ class Rectangle : public DomainCreator<2> {
   std::unique_ptr<domain::creators::time_dependence::TimeDependence<2>>
       time_dependence_{nullptr};
   std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
-      boundary_condition_{nullptr};
+      boundary_condition_in_lower_x_;
+  std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+      boundary_condition_in_upper_x_;
+  std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+      boundary_condition_in_lower_y_;
+  std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+      boundary_condition_in_upper_y_;
   inline static const std::vector<std::string> block_names_{"Rectangle"};
 };
+
+template <typename BoundaryConditionsBase>
+Rectangle::Rectangle(
+    std::array<double, 2> lower_xy, std::array<double, 2> upper_xy,
+    std::array<size_t, 2> initial_refinement_level_xy,
+    std::array<size_t, 2> initial_number_of_grid_points_in_xy,
+    std::variant<std::unique_ptr<BoundaryConditionsBase>,
+                 LowerUpperBoundaryCondition<BoundaryConditionsBase>>
+        boundary_conditions_in_x,
+    std::variant<std::unique_ptr<BoundaryConditionsBase>,
+                 LowerUpperBoundaryCondition<BoundaryConditionsBase>>
+        boundary_conditions_in_y,
+    std::unique_ptr<domain::creators::time_dependence::TimeDependence<2>>
+        time_dependence,
+    const Options::Context& context)
+    : Rectangle(
+          lower_xy, upper_xy, initial_refinement_level_xy,
+          initial_number_of_grid_points_in_xy,
+          std::holds_alternative<std::unique_ptr<BoundaryConditionsBase>>(
+              boundary_conditions_in_x)
+              ? std::get<std::unique_ptr<BoundaryConditionsBase>>(
+                    boundary_conditions_in_x)
+                    ->get_clone()
+              : std::move(
+                    std::get<
+                        LowerUpperBoundaryCondition<BoundaryConditionsBase>>(
+                        boundary_conditions_in_x)
+                        .lower),
+
+          std::holds_alternative<std::unique_ptr<BoundaryConditionsBase>>(
+              boundary_conditions_in_x)
+              ? std::get<std::unique_ptr<BoundaryConditionsBase>>(
+                    boundary_conditions_in_x)
+                    ->get_clone()
+              : std::move(
+                    std::get<
+                        LowerUpperBoundaryCondition<BoundaryConditionsBase>>(
+                        boundary_conditions_in_x)
+                        .upper),
+          std::holds_alternative<std::unique_ptr<BoundaryConditionsBase>>(
+              boundary_conditions_in_y)
+              ? std::get<std::unique_ptr<BoundaryConditionsBase>>(
+                    boundary_conditions_in_y)
+                    ->get_clone()
+              : std::move(
+                    std::get<
+                        LowerUpperBoundaryCondition<BoundaryConditionsBase>>(
+                        boundary_conditions_in_y)
+                        .lower),
+          std::holds_alternative<std::unique_ptr<BoundaryConditionsBase>>(
+              boundary_conditions_in_y)
+              ? std::get<std::unique_ptr<BoundaryConditionsBase>>(
+                    boundary_conditions_in_y)
+                    ->get_clone()
+              : std::move(
+                    std::get<
+                        LowerUpperBoundaryCondition<BoundaryConditionsBase>>(
+                        boundary_conditions_in_y)
+                        .upper),
+          std::move(time_dependence), context) {}
 }  // namespace creators
 }  // namespace domain

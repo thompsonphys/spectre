@@ -119,7 +119,7 @@ Brick::Brick(
       (is_periodic(boundary_condition_in_lower_z_) !=
        is_periodic(boundary_condition_in_lower_z_))) {
     PARSE_ERROR(context,
-                "Pierodic boundary condition must be applied for both "
+                "Periodic boundary condition must be applied for both "
                 "upper and lower direction.");
   }
 
