@@ -105,6 +105,30 @@ void fill_norm_values_and_names(
     values.push_back(value);
   }
 }
+
+std::pair<std::vector<std::string>, std::vector<DataVector>>
+split_complex_vector_of_data(
+    std::pair<std::vector<std::string>, std::vector<DataVector>>&&
+        names_and_components) {
+  return names_and_components;
+}
+
+std::pair<std::vector<std::string>, std::vector<DataVector>>
+split_complex_vector_of_data(
+    const std::pair<std::vector<std::string>, std::vector<ComplexDataVector>>&
+        names_and_components) {
+  const auto& [names, components] = names_and_components;
+  std::vector<std::string> result_names{2 * names.size()};
+  std::vector<DataVector> result_components{2 * names.size()};
+  for (size_t i = 0; i < names.size(); ++i) {
+    result_names.push_back("Re(" + names[i] + ")");
+    result_components.push_back(real(components[i]));
+    result_names.push_back("Im(" + names[i] + ")");
+    result_components.push_back(imag(components[i]));
+  }
+  return std::make_pair(std::move(result_names), std::move(result_components));
+}
+
 }  // namespace Events::ObserveNorms_impl
 
 #define DIM(data) BOOST_PP_TUPLE_ELEM(0, data)
