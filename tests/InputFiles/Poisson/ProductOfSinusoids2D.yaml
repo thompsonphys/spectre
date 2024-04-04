@@ -37,38 +37,49 @@ Background: &solution
   ProductOfSinusoids:
     WaveNumbers: [1, 1]
 
-InitialGuess:
-  Zero:
+InitialGuess: *solution
 
 RandomizeInitialGuess: None
 
 DomainCreator:
   Rectangle:
-    LowerBound: [-1.570796326794896, 0.]
-    UpperBound: [3.141592653589793, 1.570796326794896]
-    InitialRefinement: [1, 0]
-    InitialGridPoints: [4, 3]
+    LowerBound: [0., 0.]
+    UpperBound: [3.141592653589793, 3.141592653589793]
+    InitialRefinement: [2, 2]
+    InitialGridPoints: [6, 6]
     TimeDependence: None
-    BoundaryCondition:
+    BoundaryConditionInX: &bc
       AnalyticSolution:
         Solution: *solution
         Field: Dirichlet
+    BoundaryConditionInY: *bc
 
 Discretization:
   DiscontinuousGalerkin:
     PenaltyParameter: 1.
-    Massive: True
-    Quadrature: Gauss
+    Massive: False
+    Quadrature: GaussLobatto
     Formulation: StrongInertial
 
 Observers:
   VolumeFileName: "PoissonProductOfSinusoids2DVolume"
   ReductionFileName: "PoissonProductOfSinusoids2DReductions"
 
+NonlinearSolver:
+  NewtonRaphson:
+    ConvergenceCriteria:
+      MaxIterations: 100
+      RelativeResidual: 1.e-10
+      AbsoluteResidual: 1.e-10
+    Verbosity: Verbose
+    SufficientDecrease: 1e-4
+    MaxGlobalizationSteps: 10
+    DampingFactor: 1
+
 LinearSolver:
   Gmres:
     ConvergenceCriteria:
-      MaxIterations: 1
+      MaxIterations: 100
       RelativeResidual: 1.e-10
       AbsoluteResidual: 1.e-10
     Verbosity: Verbose
@@ -78,7 +89,7 @@ LinearSolver:
     MaxLevels: Auto
     PreSmoothing: True
     PostSmoothingAtBottom: False
-    Verbosity: Verbose
+    Verbosity: Quiet
     OutputVolumeData: False
 
   SchwarzSmoother:
@@ -89,11 +100,12 @@ LinearSolver:
       ExplicitInverse:
         WriteMatrixToFile: None
     ObservePerCoreReductions: False
+    SkipResets: True
 
 RadiallyCompressedCoordinates: None
 
 EventsAndTriggers:
-  - Trigger: HasConverged
+  - Trigger: Always
     Events:
       - ObserveNorms:
           SubfileName: ErrorNorms
@@ -103,7 +115,7 @@ EventsAndTriggers:
               Components: Sum
       - ObserveFields:
           SubfileName: VolumeData
-          VariablesToObserve: [Field]
+          VariablesToObserve: [Field, Error(Field), FixedSource(Field)]
           InterpolateToMesh: None
           CoordinatesFloatingPointType: Double
           FloatingPointTypes: [Double]
@@ -119,7 +131,3 @@ Amr:
   Iterations: 1
 
 PhaseChangeAndTriggers: []
-
-BuildMatrix:
-  MatrixSubfileName: Matrix
-  Verbosity: Verbose

@@ -10,10 +10,15 @@
 #include "DataStructures/DataVector.hpp"
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/Tags.hpp"
+#include "ParallelAlgorithms/LinearSolver/Schwarz/Tags.hpp"
 #include "PointwiseFunctions/GeneralRelativity/Tags.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/MakeWithValue.hpp"
 #include "Utilities/TMPL.hpp"
+
+namespace elliptic::OptionTags {
+class SchwarzSmootherGroup;
+}
 
 namespace ScalarSelfForce {
 
@@ -56,6 +61,41 @@ struct Sources {
                     const tnsr::i<ComplexDataVector, 2>& gamma,
                     const tnsr::I<DataVector, 2>& field,
                     const tnsr::IJ<DataVector, 2>& flux);
+};
+
+struct ModifyBoundaryData {
+ private:
+  static constexpr size_t Dim = 2;
+  using SchwarzOptionsGroup = elliptic::OptionTags::SchwarzSmootherGroup;
+  template <typename Tag>
+  using overlaps_tag =
+      LinearSolver::Schwarz::Tags::Overlaps<Tag, Dim, SchwarzOptionsGroup>;
+
+ public:
+  using argument_tags = tmpl::list<Tags::FieldIsRegularized,
+                                   overlaps_tag<Tags::FieldIsRegularized>>;
+  static void apply(
+      gsl::not_null<tnsr::I<DataVector, 2>*> field,
+      gsl::not_null<tnsr::I<DataVector, 2>*> n_dot_flux,
+      const DirectionalId<Dim>& mortar_id, const bool sending,
+      const bool field_is_regularized,
+      const DirectionalIdMap<Dim, bool>& neighbors_field_is_regularized) {
+    if (field_is_regularized == neighbors_field_is_regularized.at(mortar_id)) {
+      // Both elements solve for the same field. Nothing to do.
+      return;
+    }
+    if (field_is_regularized) {
+      // We're on an element that's regularized and sending to or receiving from
+      // an element that's not regularized. We have to add or subtract the
+      // singular field.
+      const double sign = sending ? 1. : -1.;
+      const size_t num_points = field->begin()->size();
+      const DataVector singular_field{num_points, 1.};  // TODO
+      const DataVector singular_field_n_dot_flux{num_points, 0.};
+      get<0>(*field) += sign * singular_field;
+      get<0>(*n_dot_flux) += sign * singular_field_n_dot_flux;
+    }
+  }
 };
 
 }  // namespace ScalarSelfForce

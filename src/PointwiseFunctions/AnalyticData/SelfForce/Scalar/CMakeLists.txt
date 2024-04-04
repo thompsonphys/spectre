@@ -25,6 +25,7 @@ target_link_libraries(
   EffectiveSource
   ErrorHandling
   GeneralRelativity
+  KerrGeodesics
   Options
   Utilities
   )

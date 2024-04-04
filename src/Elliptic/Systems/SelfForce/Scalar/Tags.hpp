@@ -35,4 +35,8 @@ struct Gamma : db::SimpleTag {
   using type = tnsr::i<ComplexDataVector, 2>;
 };
 
+struct FieldIsRegularized : db::SimpleTag {
+  using type = bool;
+};
+
 }  // namespace ScalarSelfForce::Tags

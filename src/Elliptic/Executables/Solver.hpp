@@ -108,9 +108,9 @@ struct Solver {
   using system = typename Metavariables::system;
   static_assert(
       tt::assert_conforms_to_v<system, elliptic::protocols::FirstOrderSystem>);
-  static constexpr bool is_linear =
-      std::is_same_v<elliptic::get_sources_computer<system, true>,
-                     typename system::sources_computer>;
+  static constexpr bool is_linear = false;
+  //   std::is_same_v<elliptic::get_sources_computer<system, true>,
+  //                  typename system::sources_computer>;
 
   using background_tag =
       elliptic::Tags::Background<elliptic::analytic_data::Background>;
@@ -198,6 +198,7 @@ struct Solver {
           typename db::add_tag_prefix<LinearSolver::Tags::OperatorAppliedTo,
                                       fields_tag>::tags_list>,
       tmpl::append<
+          typename fixed_sources_tag::tags_list,
           typename nonlinear_solver::linear_solver_fields_tag::tags_list,
           typename nonlinear_solver::linear_solver_source_tag::tags_list>>;
 

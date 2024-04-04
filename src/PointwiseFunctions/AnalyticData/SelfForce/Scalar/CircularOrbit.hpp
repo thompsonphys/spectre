@@ -71,6 +71,8 @@ class CircularOrbit : public elliptic::analytic_data::Background,
   using PUP::able::register_constructor;
   WRAPPED_PUPable_decl_template(CircularOrbit);
 
+  tnsr::I<double, 2> puncture_position() const;
+
   // Background
   tuples::TaggedTuple<Tags::Alpha, Tags::Beta, Tags::Gamma> variables(
       const tnsr::I<DataVector, 2>& x,

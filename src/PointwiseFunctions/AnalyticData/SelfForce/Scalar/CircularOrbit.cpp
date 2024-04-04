@@ -6,6 +6,7 @@
 #include <complex>
 #include <cstddef>
 #include <effsource.hpp>
+#include <korb.hpp>
 #include <utility>
 
 #include "DataStructures/ComplexDataVector.hpp"
@@ -30,6 +31,15 @@ CircularOrbit::CircularOrbit(const double scalar_charge,
       orbital_radius_(orbital_radius),
       m_mode_number_(m_mode_number) {}
 
+tnsr::I<double, 2> CircularOrbit::puncture_position() const {
+  const double a = black_hole_spin_ * black_hole_mass_;
+  const double M = black_hole_mass_;
+  const double r_plus = M * (1. + sqrt(1. - square(black_hole_spin_)));
+  const double r_0 = orbital_radius_;
+  const double r_star = korb_rsfromrsubtrplus(r_0 - r_plus, a);
+  return tnsr::I<double, 2>{{{r_star, M_PI_2}}};
+}
+
 // Background
 tuples::TaggedTuple<Tags::Alpha, Tags::Beta, Tags::Gamma>
 CircularOrbit::variables(
@@ -43,8 +53,8 @@ CircularOrbit::variables(
   const auto& r_star = get<0>(x);
   const auto& theta = get<1>(x);
   const DataVector r = gr::boyer_lindquist_radius_minus_r_plus_from_tortoise(
-                     r_star, M, black_hole_spin_) +
-                 r_plus;
+                           r_star, M, black_hole_spin_) +
+                       r_plus;
   const DataVector delta = square(r) - 2.0 * M * r + square(a);
   const DataVector r_sq_plus_a_sq = square(r) + square(a);
   const DataVector r_sq_plus_a_sq_sq = square(r_sq_plus_a_sq);

@@ -27,7 +27,7 @@ DomainCreator:
     # Order of dimensions is (r_*, theta)
     LowerBound: [-50., 0.]
     UpperBound: [150., 3.141592653589793]
-    InitialRefinement: [4, 1]
+    InitialRefinement: [5, 2]
     InitialGridPoints: [6, 6]
     TimeDependence: None
     # Radial boundary conditions
@@ -104,6 +104,16 @@ EventsAndTriggers:
           InterpolateToMesh: None
           CoordinatesFloatingPointType: Double
           FloatingPointTypes: [Double]
+
+Amr:
+  Verbosity: Quiet
+  Criteria: []
+  Policies:
+    Isotropy: Anisotropic
+    Limits:
+      NumGridPoints: Auto
+      RefinementLevel: Auto
+  Iterations: 1
 
 PhaseChangeAndTriggers: []
 

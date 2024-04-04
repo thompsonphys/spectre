@@ -39,6 +39,7 @@ struct FirstOrderSystem
 
   using fluxes_computer = Fluxes;
   using sources_computer = Sources;
+  using modify_boundary_data = ModifyBoundaryData;
 
   using boundary_conditions_base =
       elliptic::BoundaryConditions::BoundaryCondition<2>;

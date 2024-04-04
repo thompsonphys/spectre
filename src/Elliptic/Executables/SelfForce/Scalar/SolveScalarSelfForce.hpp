@@ -12,6 +12,7 @@
 #include "Elliptic/Actions/RunEventsAndTriggers.hpp"
 #include "Elliptic/BoundaryConditions/BoundaryCondition.hpp"
 #include "Elliptic/DiscontinuousGalerkin/DgElementArray.hpp"
+#include "Elliptic/Executables/SelfForce/Scalar/Actions/InitializeEffectiveSource.hpp"
 #include "Elliptic/Executables/Solver.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/BoundaryConditions/Angular.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/BoundaryConditions/Sommerfeld.hpp"
@@ -127,8 +128,14 @@ struct Metavariables {
   using dg_element_array = elliptic::DgElementArray<
       Metavariables,
       tmpl::list<
-          Parallel::PhaseActions<Parallel::Phase::Initialization,
-                                 initialization_actions>,
+          Parallel::PhaseActions<
+              Parallel::Phase::Initialization,
+              tmpl::replace<initialization_actions,
+                            elliptic::Actions::InitializeFixedSources<
+                                system, typename solver::background_tag>,
+                            ScalarSelfForce::Actions::InitializeEffectiveSource<
+                                system, typename solver::background_tag,
+                                elliptic::OptionTags::SchwarzSmootherGroup>>>,
           Parallel::PhaseActions<
               Parallel::Phase::Register,
               tmpl::push_back<register_actions,
@@ -146,7 +153,13 @@ struct Metavariables {
 
   struct amr : tt::ConformsTo<::amr::protocols::AmrMetavariables> {
     using element_array = dg_element_array;
-    using projectors = typename solver::amr_projectors;
+    using projectors =
+        tmpl::replace<typename solver::amr_projectors,
+                      elliptic::Actions::InitializeFixedSources<
+                          system, typename solver::background_tag>,
+                      ScalarSelfForce::Actions::InitializeEffectiveSource<
+                          system, typename solver::background_tag,
+                          elliptic::OptionTags::SchwarzSmootherGroup>>;
   };
 
   struct registration

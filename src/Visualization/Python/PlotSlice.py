@@ -58,9 +58,13 @@ def points_on_slice(
     assert (
         len(slice_extent) == 2
     ), "Specify two numbers for slice_extent (one per dimension of the slice)"
-    n = slice_normal / np.linalg.norm(slice_normal)
+    dim = len(slice_origin)
     u = slice_up / np.linalg.norm(slice_up)
-    v = np.cross(u, n) * slice_extent[0]
+    if dim == 2:
+        v = np.array([u[1], -u[0]]) * slice_extent[0]
+    else:
+        n = slice_normal / np.linalg.norm(slice_normal)
+        v = np.cross(u, n) * slice_extent[0]
     u *= slice_extent[1]
     lower_left = slice_origin - 0.5 * (u + v)
     xx, yy = np.meshgrid(
@@ -154,6 +158,12 @@ def points_on_slice(
     nargs=2,
     help="Lower and upper bounds for the color scale of the plot.",
 )
+@click.option(
+    "--spherical/--no-spherical",
+    default=100,
+    type=float,
+    help="Delay between frames in milliseconds. Only used for animations.",
+)
 # Animation options
 @click.option("--animate", is_flag=True, help="Animate over all observations.")
 @click.option(
@@ -178,6 +188,7 @@ def plot_slice_command(
     num_threads,
     title,
     data_bounds,
+    spherical,
     animate,
     interval,
 ):
@@ -215,7 +226,6 @@ def plot_slice_command(
         slice_origin, slice_extent, slice_normal, slice_up, num_samples
     )
     dim = target_coords.shape[0]
-    assert dim == 3, "Only 3D slices are supported"
 
     # Set axes for plot. For plotting along an axis, use the axis coordinate.
     # Otherwise, use the affine parameter.
@@ -226,7 +236,10 @@ def plot_slice_command(
         return None
 
     y_axis = coord_axis(slice_up)
-    x_axis = coord_axis(np.cross(slice_up, slice_normal))
+    if dim == 2:
+        x_axis = int(not bool(y_axis)) if y_axis is not None else None
+    else:
+        x_axis = coord_axis(np.cross(slice_up, slice_normal))
     if x_axis is not None:
         x = target_coords[x_axis]
         x_label = "xyz"[x_axis]
@@ -262,12 +275,19 @@ def plot_slice_command(
     )
 
     # Set up the figure
-    fig, ax = plt.figure(), plt.gca()
+    if spherical:
+        fig, ax = plt.subplots(subplot_kw=dict(projection="polar"))
+        ax.set_theta_zero_location("N")
+        ax.set_theta_direction(-1)
+        ax.set_thetamin(0)
+        ax.set_thetamax(180)
+    else:
+        fig, ax = plt.figure(), plt.gca()
+        plt.xlabel(x_label)
+        plt.ylabel(y_label)
     plt.title(title or var_name)
     if np.isclose(slice_extent[0], slice_extent[1]):
-        plt.gca().set_aspect("equal")
-    plt.xlabel(x_label)
-    plt.ylabel(y_label)
+        ax.set_aspect("equal")
     plt.colorbar(matplotlib.cm.ScalarMappable(norm=norm), ax=ax)
     time_label = plt.annotate(
         "",
@@ -288,7 +308,7 @@ def plot_slice_command(
                 subfile_name=subfile_name,
                 observation_id=obs_id,
                 tensor_components=[var_name],
-                target_points=target_coords.reshape(3, np.prod(num_samples)),
+                target_points=target_coords.reshape(dim, np.prod(num_samples)),
                 num_threads=num_threads,
             )[0]
         ).reshape(num_samples)
