@@ -16,9 +16,8 @@ DataVector boyer_lindquist_radius_minus_r_plus_from_tortoise(
     const double dimensionless_spin) {
   DataVector r{r_star.size()};
   for (size_t i = 0; i < r_star.size(); i++) {
-    r[i] = korb_rsubtrplusfromrs(r_star[i], dimensionless_spin);
+    r[i] = korb_rsubtrplusfromrs(r_star[i], mass * dimensionless_spin);
   }
-  r += mass * (1 + sqrt(1 - dimensionless_spin * dimensionless_spin));
   return r;
 }
 

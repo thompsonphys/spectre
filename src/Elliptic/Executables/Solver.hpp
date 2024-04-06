@@ -248,9 +248,11 @@ struct Solver {
           elliptic::amr::Actions::Initialize>,
       elliptic::Actions::InitializeFields<system, initial_guess_tag>,
       ::Actions::RandomizeVariables<fields_tag, RandomizeInitialGuess>,
-      elliptic::Actions::InitializeFixedSources<system, background_tag>,
       init_analytic_solution_action,
       elliptic::dg::Actions::initialize_operator<system, background_tag>,
+      // After initialization of faces and normals, needed for normal dot
+      // singular field flux
+      elliptic::Actions::InitializeFixedSources<system, background_tag>,
       tmpl::conditional_t<
           is_linear, tmpl::list<>,
           ::Initialization::Actions::AddComputeTags<tmpl::list<
@@ -318,14 +320,14 @@ struct Solver {
               tmpl::list<fields_tag, fluxes_tag>,
               typename multigrid::options_group, void>,
           // Communicate data on subdomain overlap regions
-          LinearSolver::Schwarz::Actions::SendOverlapFields<
-              communicated_overlap_tags,
-              typename schwarz_smoother::options_group, false,
-              nonlinear_solver_iteration_id>,
-          LinearSolver::Schwarz::Actions::ReceiveOverlapFields<
-              volume_dim, communicated_overlap_tags,
-              typename schwarz_smoother::options_group, false,
-              nonlinear_solver_iteration_id>,
+          //   LinearSolver::Schwarz::Actions::SendOverlapFields<
+          //       communicated_overlap_tags,
+          //       typename schwarz_smoother::options_group, false,
+          //       nonlinear_solver_iteration_id>,
+          //   LinearSolver::Schwarz::Actions::ReceiveOverlapFields<
+          //       volume_dim, communicated_overlap_tags,
+          //       typename schwarz_smoother::options_group, false,
+          //       nonlinear_solver_iteration_id>,
           // Reset Schwarz subdomain solver
           LinearSolver::Schwarz::Actions::ResetSubdomainSolver<
               typename schwarz_smoother::options_group>,
@@ -388,11 +390,10 @@ struct Solver {
                      domain::Tags::InitialRefinementLevels<volume_dim>>,
           // Tags communicated on subdomain overlaps. No need to project
           // these during AMR because they will be communicated.
-          db::wrap_tags_in<
-              overlaps_tag,
-              tmpl::append<subdomain_init_tags,
-                           tmpl::conditional_t<is_linear, tmpl::list<>,
-                                               communicated_overlap_tags>>>,
+          db::wrap_tags_in<overlaps_tag, subdomain_init_tags>,
+          //   tmpl::append<subdomain_init_tags,
+          //                tmpl::conditional_t<is_linear, tmpl::list<>,
+          //                                    communicated_overlap_tags>>>,
           // Tags initialized on subdomains. No need to project these during
           // AMR because they will get re-initialized after communication.
           typename init_subdomain_action::simple_tags>>,

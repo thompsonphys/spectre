@@ -23,7 +23,8 @@ Sommerfeld::Sommerfeld(const double black_hole_mass,
 
 void Sommerfeld::apply(
     const gsl::not_null<tnsr::I<DataVector, 2>*> field,
-    const gsl::not_null<tnsr::I<DataVector, 2>*> n_dot_field_gradient) const {
+    const gsl::not_null<tnsr::I<DataVector, 2>*> n_dot_field_gradient,
+    const tnsr::iJ<DataVector, 2>& /*deriv_field*/) const {
   // Assuming circular orbit here!
   const double a = black_hole_spin_ * black_hole_mass_;
   const double M = black_hole_mass_;
@@ -43,8 +44,10 @@ void Sommerfeld::apply(
 void Sommerfeld::apply_linearized(
     const gsl::not_null<tnsr::I<DataVector, 2>*> field_correction,
     const gsl::not_null<tnsr::I<DataVector, 2>*>
-        n_dot_field_gradient_correction) const {
-  apply(field_correction, n_dot_field_gradient_correction);
+        n_dot_field_gradient_correction,
+    const tnsr::iJ<DataVector, 2>& deriv_field_correction) const {
+  apply(field_correction, n_dot_field_gradient_correction,
+        deriv_field_correction);
 }
 
 void Sommerfeld::pup(PUP::er& p) {

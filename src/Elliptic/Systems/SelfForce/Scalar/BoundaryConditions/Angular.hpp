@@ -62,14 +62,16 @@ class Angular : public elliptic::BoundaryConditions::BoundaryCondition<2> {
   using volume_tags = tmpl::list<>;
 
   void apply(gsl::not_null<tnsr::I<DataVector, 2>*> field,
-             gsl::not_null<tnsr::I<DataVector, 2>*> n_dot_field_gradient) const;
+             gsl::not_null<tnsr::I<DataVector, 2>*> n_dot_field_gradient,
+             const tnsr::iJ<DataVector, 2>& deriv_field) const;
 
   using argument_tags_linearized = tmpl::list<>;
   using volume_tags_linearized = tmpl::list<>;
 
-  void apply_linearized(gsl::not_null<tnsr::I<DataVector, 2>*> field_correction,
-                        gsl::not_null<tnsr::I<DataVector, 2>*>
-                            n_dot_field_gradient_correction) const;
+  void apply_linearized(
+      gsl::not_null<tnsr::I<DataVector, 2>*> field_correction,
+      gsl::not_null<tnsr::I<DataVector, 2>*> n_dot_field_gradient_correction,
+      const tnsr::iJ<DataVector, 2>& deriv_field_correction) const;
 
  private:
   friend bool operator==(const Angular& lhs, const Angular& rhs);

@@ -93,9 +93,16 @@ tuples::TaggedTuple<Tags::MMode> CircularOrbit::variables(
 }
 
 // Fixed sources
-tuples::TaggedTuple<::Tags::FixedSource<Tags::MMode>> CircularOrbit::variables(
+tuples::TaggedTuple<
+    ::Tags::FixedSource<Tags::MMode>, Tags::SingularField,
+    ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>,
+    Tags::BoyerLindquistRadius>
+CircularOrbit::variables(
     const tnsr::I<DataVector, 2>& x,
-    tmpl::list<::Tags::FixedSource<Tags::MMode>> /*meta*/) const {
+    tmpl::list<
+        ::Tags::FixedSource<Tags::MMode>, Tags::SingularField,
+        ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>,
+        Tags::BoyerLindquistRadius> /*meta*/) const {
   const double a = black_hole_spin_ * black_hole_mass_;
   const double M = black_hole_mass_;
   const double r_0 = orbital_radius_;
@@ -127,8 +134,21 @@ tuples::TaggedTuple<::Tags::FixedSource<Tags::MMode>> CircularOrbit::variables(
                                log((r - r_plus) / (r - r_minus));
   const ComplexDataVector rotation =
       cos(delta_phi) + std::complex<double>(0., 1.) * sin(delta_phi);
-  tuples::TaggedTuple<::Tags::FixedSource<Tags::MMode>> result{};
-  ComplexDataVector effective_source{get<0>(x).size()};
+  tuples::TaggedTuple<
+      ::Tags::FixedSource<Tags::MMode>, Tags::SingularField,
+      ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>,
+      Tags::BoyerLindquistRadius>
+      result{};
+  get(get<Tags::BoyerLindquistRadius>(result)) = r;
+  const size_t num_points = get<0>(x).size();
+  ComplexDataVector effective_source{num_points};
+  Scalar<ComplexDataVector>& singular_field = get<Tags::SingularField>(result);
+  get(singular_field).destructive_resize(num_points);
+  tnsr::i<ComplexDataVector, 2>& deriv_singular_field =
+      get<::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>>(
+          result);
+  get<0>(deriv_singular_field).destructive_resize(num_points);
+  get<1>(deriv_singular_field).destructive_resize(num_points);
   struct coordinate x_i;
   double PhiS[2], dPhiS_dx[8], d2PhiS_dx2[20], src[2];
   for (size_t i = 0; i < get<0>(x).size(); ++i) {
@@ -138,10 +158,14 @@ tuples::TaggedTuple<::Tags::FixedSource<Tags::MMode>> CircularOrbit::variables(
     x_i.phi = 0;
     effsource_calc_m(m_mode_number_, &x_i, PhiS, dPhiS_dx, d2PhiS_dx2, src);
     effective_source[i] = src[0] + std::complex<double>(0., 1.) * src[1];
+    get(singular_field)[i] = PhiS[0] + std::complex<double>(0., 1.) * PhiS[1];
   }
   // Rotate the source by delta_phi and multiply by r / 2 pi
   // TODO: is this correct for S_eff?
   effective_source *= rotation * 0.5 * r / M_PI;
+  get(singular_field) *= rotation * 0.5 * r / M_PI;
+  // TODO: set deriv_singular_field
+  // TODO: also rotate the derivatives of the singular field
   auto& fixed_source = get<::Tags::FixedSource<Tags::MMode>>(result);
   get<0>(fixed_source) = real(effective_source);
   get<1>(fixed_source) = imag(effective_source);

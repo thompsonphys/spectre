@@ -39,4 +39,12 @@ struct FieldIsRegularized : db::SimpleTag {
   using type = bool;
 };
 
+struct SingularField : db::SimpleTag {
+  using type = Scalar<ComplexDataVector>;
+};
+
+struct BoyerLindquistRadius : db::SimpleTag {
+  using type = Scalar<DataVector>;
+};
+
 }  // namespace ScalarSelfForce::Tags

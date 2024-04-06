@@ -12,6 +12,7 @@
 #include "DataStructures/DataBox/Prefixes.hpp"
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/Tags.hpp"
+#include "NumericalAlgorithms/LinearOperators/PartialDerivatives.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
 #include "Options/String.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/Background.hpp"
@@ -83,9 +84,15 @@ class CircularOrbit : public elliptic::analytic_data::Background,
       const tnsr::I<DataVector, 2>& x, tmpl::list<Tags::MMode> /*meta*/) const;
 
   // Fixed sources
-  tuples::TaggedTuple<::Tags::FixedSource<Tags::MMode>> variables(
-      const tnsr::I<DataVector, 2>& x,
-      tmpl::list<::Tags::FixedSource<Tags::MMode>> /*meta*/) const;
+  tuples::TaggedTuple<
+      ::Tags::FixedSource<Tags::MMode>, Tags::SingularField,
+      ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>,
+      Tags::BoyerLindquistRadius>
+  variables(const tnsr::I<DataVector, 2>& x,
+            tmpl::list<::Tags::FixedSource<Tags::MMode>, Tags::SingularField,
+                       ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>,
+                                     Frame::Inertial>,
+                       Tags::BoyerLindquistRadius> /*meta*/) const;
 
   template <typename... RequestedTags>
   tuples::TaggedTuple<RequestedTags...> variables(

@@ -34,6 +34,7 @@ target_link_libraries(
   ParallelAmr
   ParallelLinearSolver
   ParallelMultigrid
+  ParallelNonlinearSolver
   ParallelSchwarz
   ScalarSelfForce
   ScalarSelfForceAnalyticData

@@ -17,6 +17,7 @@
 #include "Elliptic/Systems/SelfForce/Scalar/BoundaryConditions/Angular.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/BoundaryConditions/Sommerfeld.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/FirstOrderSystem.hpp"
+#include "Elliptic/Systems/SelfForce/Scalar/Tags.hpp"
 #include "Elliptic/Triggers/Factory.hpp"
 #include "IO/Observer/Actions/RegisterEvents.hpp"
 #include "IO/Observer/Helpers.hpp"
@@ -64,6 +65,8 @@ struct Metavariables {
 
   using observe_fields = tmpl::append<
       typename system::primal_fields, typename system::background_fields,
+      tmpl::list<ScalarSelfForce::Tags::SingularField,
+                 ScalarSelfForce::Tags::BoyerLindquistRadius>,
       typename solver::observe_fields,
       tmpl::list<domain::Tags::Coordinates<volume_dim, Frame::Inertial>>>;
   using observer_compute_tags =
@@ -143,11 +146,12 @@ struct Metavariables {
           Parallel::PhaseActions<Parallel::Phase::Solve, solve_actions>,
           Parallel::PhaseActions<Parallel::Phase::CheckDomain,
                                  tmpl::list<::amr::Actions::SendAmrDiagnostics,
-                                            Parallel::Actions::TerminatePhase>>,
+                                            Parallel::Actions::TerminatePhase>>
+                                            /*,
           Parallel::PhaseActions<
               Parallel::Phase::BuildMatrix,
               tmpl::push_back<typename solver::build_matrix_actions,
-                              Parallel::Actions::TerminatePhase>>>,
+                              Parallel::Actions::TerminatePhase>>*/>,
       LinearSolver::multigrid::ElementsAllocator<
           volume_dim, typename solver::multigrid::options_group>>;
 

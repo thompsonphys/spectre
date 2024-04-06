@@ -72,14 +72,21 @@ struct ModifyBoundaryData {
       LinearSolver::Schwarz::Tags::Overlaps<Tag, Dim, SchwarzOptionsGroup>;
 
  public:
-  using argument_tags = tmpl::list<Tags::FieldIsRegularized,
-                                   overlaps_tag<Tags::FieldIsRegularized>>;
+  using argument_tags =
+      tmpl::list<Tags::FieldIsRegularized,
+                 overlaps_tag<Tags::FieldIsRegularized>, Tags::SingularField,
+                 ::Tags::NormalDotFlux<Tags::SingularField>>;
+  using volume_tags = tmpl::list<Tags::FieldIsRegularized,
+                                 overlaps_tag<Tags::FieldIsRegularized>>;
   static void apply(
       gsl::not_null<tnsr::I<DataVector, 2>*> field,
       gsl::not_null<tnsr::I<DataVector, 2>*> n_dot_flux,
       const DirectionalId<Dim>& mortar_id, const bool sending,
+      const tnsr::i<DataVector, Dim>& /*face_normal*/,
       const bool field_is_regularized,
-      const DirectionalIdMap<Dim, bool>& neighbors_field_is_regularized) {
+      const DirectionalIdMap<Dim, bool>& neighbors_field_is_regularized,
+      const Scalar<ComplexDataVector>& singular_field,
+      const Scalar<ComplexDataVector>& singular_field_n_dot_flux) {
     if (field_is_regularized == neighbors_field_is_regularized.at(mortar_id)) {
       // Both elements solve for the same field. Nothing to do.
       return;
@@ -89,11 +96,10 @@ struct ModifyBoundaryData {
       // an element that's not regularized. We have to add or subtract the
       // singular field.
       const double sign = sending ? 1. : -1.;
-      const size_t num_points = field->begin()->size();
-      const DataVector singular_field{num_points, 1.};  // TODO
-      const DataVector singular_field_n_dot_flux{num_points, 0.};
-      get<0>(*field) += sign * singular_field;
-      get<0>(*n_dot_flux) += sign * singular_field_n_dot_flux;
+      get<0>(*field) += sign * real(get(singular_field));
+      get<1>(*field) += sign * imag(get(singular_field));
+      get<0>(*n_dot_flux) += real(get(singular_field_n_dot_flux));
+      get<1>(*n_dot_flux) += imag(get(singular_field_n_dot_flux));
     }
   }
 };
