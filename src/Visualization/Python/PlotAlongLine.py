@@ -199,6 +199,7 @@ def plot_along_line_command(
         va="bottom",
         fontsize=9,
     )
+    plt.grid()
 
     def update_plot(obs_id, obs_time):
         vars_on_line = interpolate_to_points(
