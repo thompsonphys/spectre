@@ -49,7 +49,7 @@ CircularOrbit::variables(
   const double M = black_hole_mass_;
   const double r_plus = M * (1. + sqrt(1. - square(black_hole_spin_)));
   const double r_0 = orbital_radius_;
-  const double omega = 1. / (a + sqrt(cube(r_0) * M));
+  const double omega = 1. / (a + sqrt(cube(r_0) / M));
   const auto& r_star = get<0>(x);
   const auto& theta = get<1>(x);
   const DataVector r = gr::boyer_lindquist_radius_minus_r_plus_from_tortoise(
@@ -129,6 +129,9 @@ CircularOrbit::variables(
   const DataVector r = gr::boyer_lindquist_radius_minus_r_plus_from_tortoise(
                            r_star, M, black_hole_spin_) +
                        r_plus;
+  const DataVector delta = square(r) - 2.0 * M * r + square(a);
+  const DataVector r_sq_plus_a_sq = square(r) + square(a);
+  const DataVector r_sq_plus_a_sq_sq = square(r_sq_plus_a_sq);
   // TODO: check sign of delta_phi
   const DataVector delta_phi = m_mode_number_ * a / (r_plus - r_minus) *
                                log((r - r_plus) / (r - r_minus));
@@ -159,13 +162,24 @@ CircularOrbit::variables(
     effsource_calc_m(m_mode_number_, &x_i, PhiS, dPhiS_dx, d2PhiS_dx2, src);
     effective_source[i] = src[0] + std::complex<double>(0., 1.) * src[1];
     get(singular_field)[i] = PhiS[0] + std::complex<double>(0., 1.) * PhiS[1];
+    get<0>(deriv_singular_field)[i] =
+        dPhiS_dx[2] + std::complex<double>(0., 1.) * dPhiS_dx[3];
+    get<1>(deriv_singular_field)[i] =
+        dPhiS_dx[4] + std::complex<double>(0., 1.) * dPhiS_dx[5];
   }
   // Rotate the source by delta_phi and multiply by r / 2 pi
-  // TODO: is this correct for S_eff?
   effective_source *= rotation * 0.5 * r / M_PI;
+  // Factor Delta * (r^2 + a^2 cos^2(theta)) / Sigma^2
+  // Factor Sigma^2 / (r^2 + a^2)^2 from first-order formulation
+  effective_source *=
+      delta * (square(r) + square(a * cos(theta))) / r_sq_plus_a_sq_sq;
   get(singular_field) *= rotation * 0.5 * r / M_PI;
-  // TODO: set deriv_singular_field
-  // TODO: also rotate the derivatives of the singular field
+  get<0>(deriv_singular_field) *= rotation * 0.5 * r / M_PI;
+  get<0>(deriv_singular_field) +=
+      get(singular_field) / r - std::complex<double>(0., a * m_mode_number_) /
+                                    delta * get(singular_field);
+  get<0>(deriv_singular_field) *= delta / r_sq_plus_a_sq;
+  get<1>(deriv_singular_field) *= rotation * 0.5 * r / M_PI;
   auto& fixed_source = get<::Tags::FixedSource<Tags::MMode>>(result);
   get<0>(fixed_source) = real(effective_source);
   get<1>(fixed_source) = imag(effective_source);

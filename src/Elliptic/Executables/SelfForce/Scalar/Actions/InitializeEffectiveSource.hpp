@@ -16,6 +16,7 @@
 #include "Domain/Creators/Tags/Domain.hpp"
 #include "Domain/Domain.hpp"
 #include "Domain/ElementLogicalCoordinates.hpp"
+#include "Domain/ElementMap.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Tags.hpp"
 #include "Domain/Tags/FaceNormal.hpp"
@@ -148,13 +149,26 @@ struct InitializeEffectiveSource : tt::ConformsTo<::amr::protocols::Projector> {
     const auto puncture_in_element =
         [&puncture_pos, &domain](const ElementId<Dim>& element_id) -> bool {
       const auto& block = domain.blocks()[element_id.block_id()];
-      const auto block_logical_coords =
-          block_logical_coordinates_single_point(puncture_pos, block);
-      if (not block_logical_coords.has_value()) {
-        return false;
-      }
-      return element_logical_coordinates(*block_logical_coords, element_id)
-          .has_value();
+      const ElementMap<Dim, Frame::Inertial> element_map{element_id, block};
+      const tnsr::I<DataVector, Dim, Frame::ElementLogical> xi_corners{
+          {{{-1., 1.}, {-1., 1.}}}};
+      const auto x_corners = element_map(xi_corners);
+      const auto& r_star_bounds = get<0>(x_corners);
+      const auto& theta_bounds = get<1>(x_corners);
+      const double worldtube_radius = 10;
+      const double worldtube_angular_size = 0.25 * M_PI_4;
+      return (r_star_bounds[1] >= get<0>(puncture_pos) - worldtube_radius and
+              r_star_bounds[0] <= get<0>(puncture_pos) + worldtube_radius and
+              theta_bounds[1] >=
+                  get<1>(puncture_pos) - worldtube_angular_size and
+              theta_bounds[0] <= get<1>(puncture_pos) + worldtube_angular_size);
+      //   const auto block_logical_coords =
+      //       block_logical_coordinates_single_point(puncture_pos, block);
+      //   if (not block_logical_coords.has_value()) {
+      //     return false;
+      //   }
+      //   return element_logical_coordinates(*block_logical_coords, element_id)
+      //       .has_value();
     };
     *field_is_regularized = puncture_in_element(element.id());
     neighbors_field_is_regularized->clear();

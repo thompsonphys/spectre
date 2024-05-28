@@ -23,7 +23,7 @@ std::vector<std::array<size_t, Dim>> coarsen(
   for (auto& block_refinement : initial_refinement_levels) {
     for (size_t d = 0; d < Dim; ++d) {
       auto& refinement_level = gsl::at(block_refinement, d);
-      if (refinement_level > 0) {
+      if (refinement_level > 2) {
         --refinement_level;
       }
     }
@@ -36,7 +36,7 @@ ElementId<Dim> parent_id(const ElementId<Dim>& child_id) {
   std::array<SegmentId, Dim> parent_segment_ids = child_id.segment_ids();
   for (size_t d = 0; d < Dim; ++d) {
     auto& segment_id = gsl::at(parent_segment_ids, d);
-    if (segment_id.refinement_level() > 0) {
+    if (segment_id.refinement_level() > 2) {
       segment_id = segment_id.id_of_parent();
     }
   }

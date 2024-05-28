@@ -29,7 +29,7 @@ void Sommerfeld::apply(
   const double a = black_hole_spin_ * black_hole_mass_;
   const double M = black_hole_mass_;
   const double r_0 = orbital_radius_;
-  const double omega = 1. / (a + sqrt(cube(r_0) * M));
+  const double omega = 1. / (a + sqrt(cube(r_0) / M));
   Scalar<ComplexDataVector> field_complex{field->begin()->size()};
   get(field_complex) =
       get<0>(*field) + std::complex<double>(0.0, 1.0) * get<1>(*field);
