@@ -51,6 +51,6 @@ void logical_weak_divergence(const gsl::not_null<ResultTensor*> div_flux,
       const Mesh<DIM(data)>& mesh);
 
 GENERATE_INSTANTIATIONS(INSTANTIATION_SCALAR, (1, 2, 3))
-GENERATE_INSTANTIATIONS(INSTANTIATION_TENSOR, (1, 2, 3), (i, I))
+GENERATE_INSTANTIATIONS(INSTANTIATION_TENSOR, (1, 2, 3), (i, I, ii))
 
 #undef INSTANTIATION
