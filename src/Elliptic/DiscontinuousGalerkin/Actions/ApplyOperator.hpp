@@ -415,7 +415,9 @@ struct ReceiveMortarDataAndApplyOperator<
           tmpl::list<domain::Tags::Faces<Dim, domain::Tags::FaceNormal<Dim>>>>(
           [&received_mortar_data, &temporal_id, &mod_args_on_faces](
               const auto all_mortar_data, const auto& face_normals) {
-            for (auto& [mortar_id, mortar_data] : received_mortar_data) {
+            for (auto& mortar_id_and_data : received_mortar_data) {
+              auto& mortar_id = mortar_id_and_data.first;
+              auto& mortar_data = mortar_id_and_data.second;
               // Modify data if needed
               if constexpr (not Linearized) {
                 std::apply(
