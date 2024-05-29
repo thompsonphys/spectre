@@ -417,7 +417,7 @@ GENERATE_INSTANTIATIONS(INSTANTIATE, (1, 2, 3), (Frame::Inertial),
       DIM(data), UpLo::Up, SRCFRAME(data) > ;
 GENERATE_INSTANTIATIONS(INSTANTIATE, (1, 2, 3), (Frame::ElementLogical),
                         (Frame::Inertial), (double, DataVector),
-                        (I, II, Ij, IJ, Ijj))
+                        (I, II, Ij, IJ, Iaa))
 
 #undef DIM
 #undef SRCFRAME

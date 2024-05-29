@@ -16,11 +16,11 @@ class DataVector;
 namespace GrSelfForce::Tags {
 
 struct MModeRe : db::SimpleTag {
-  using type = tnsr::ii<DataVector, 2>;
+  using type = tnsr::aa<DataVector, 3>;
 };
 
 struct MModeIm : db::SimpleTag {
-  using type = tnsr::ii<DataVector, 2>;
+  using type = tnsr::aa<DataVector, 3>;
 };
 
 struct Alpha : db::SimpleTag {
@@ -28,11 +28,15 @@ struct Alpha : db::SimpleTag {
 };
 
 struct Beta : db::SimpleTag {
-  using type = Scalar<ComplexDataVector>;
+  using type = tnsr::aaBB<ComplexDataVector, 3>;
 };
 
-struct Gamma : db::SimpleTag {
-  using type = tnsr::i<ComplexDataVector, 2>;
+struct GammaRstar : db::SimpleTag {
+  using type = tnsr::aaBB<ComplexDataVector, 3>;
+};
+
+struct GammaTheta : db::SimpleTag {
+  using type = tnsr::aaBB<ComplexDataVector, 3>;
 };
 
 struct FieldIsRegularized : db::SimpleTag {
@@ -40,7 +44,7 @@ struct FieldIsRegularized : db::SimpleTag {
 };
 
 struct SingularField : db::SimpleTag {
-  using type = tnsr::ii<ComplexDataVector, 2>;
+  using type = tnsr::aa<ComplexDataVector, 3>;
 };
 
 struct BoyerLindquistRadius : db::SimpleTag {

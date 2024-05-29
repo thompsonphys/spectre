@@ -18,9 +18,9 @@
 
 namespace GrSelfForce::BoundaryConditions {
 
-class Sommerfeld : public elliptic::BoundaryConditions::BoundaryCondition<2> {
+class Sommerfeld : public elliptic::BoundaryConditions::BoundaryCondition<3> {
  private:
-  using Base = elliptic::BoundaryConditions::BoundaryCondition<2>;
+  using Base = elliptic::BoundaryConditions::BoundaryCondition<3>;
 
  public:
   struct BlackHoleMass {
@@ -83,25 +83,25 @@ class Sommerfeld : public elliptic::BoundaryConditions::BoundaryCondition<2> {
   using argument_tags = tmpl::list<>;
   using volume_tags = tmpl::list<>;
 
-  void apply(gsl::not_null<tnsr::ii<DataVector, 2>*> field_re,
-             gsl::not_null<tnsr::ii<DataVector, 2>*> field_im,
-             gsl::not_null<tnsr::ii<DataVector, 2>*> n_dot_field_gradient_re,
-             gsl::not_null<tnsr::ii<DataVector, 2>*> n_dot_field_gradient_im,
-             const tnsr::ijj<DataVector, 2>& deriv_field_re,
-             const tnsr::ijj<DataVector, 2>& deriv_field_im) const;
+  void apply(gsl::not_null<tnsr::aa<DataVector, 3>*> field_re,
+             gsl::not_null<tnsr::aa<DataVector, 3>*> field_im,
+             gsl::not_null<tnsr::aa<DataVector, 3>*> n_dot_field_gradient_re,
+             gsl::not_null<tnsr::aa<DataVector, 3>*> n_dot_field_gradient_im,
+             const tnsr::iaa<DataVector, 3>& deriv_field_re,
+             const tnsr::iaa<DataVector, 3>& deriv_field_im) const;
 
   using argument_tags_linearized = tmpl::list<>;
   using volume_tags_linearized = tmpl::list<>;
 
   void apply_linearized(
-      gsl::not_null<tnsr::ii<DataVector, 2>*> field_correction_re,
-      gsl::not_null<tnsr::ii<DataVector, 2>*> field_correction_im,
-      gsl::not_null<tnsr::ii<DataVector, 2>*>
+      gsl::not_null<tnsr::aa<DataVector, 3>*> field_correction_re,
+      gsl::not_null<tnsr::aa<DataVector, 3>*> field_correction_im,
+      gsl::not_null<tnsr::aa<DataVector, 3>*>
           n_dot_field_correction_gradient_re,
-      gsl::not_null<tnsr::ii<DataVector, 2>*>
+      gsl::not_null<tnsr::aa<DataVector, 3>*>
           n_dot_field_correction_gradient_im,
-      const tnsr::ijj<DataVector, 2>& deriv_field_correction_re,
-      const tnsr::ijj<DataVector, 2>& deriv_field_correction_im) const;
+      const tnsr::iaa<DataVector, 3>& deriv_field_correction_re,
+      const tnsr::iaa<DataVector, 3>& deriv_field_correction_im) const;
 
   // NOLINTNEXTLINE
   void pup(PUP::er& p) override;
@@ -118,4 +118,4 @@ class Sommerfeld : public elliptic::BoundaryConditions::BoundaryCondition<2> {
 
 bool operator!=(const Sommerfeld& lhs, const Sommerfeld& rhs);
 
-}  // namespace ScalarSelfForce::BoundaryConditions
+}  // namespace GrSelfForce::BoundaryConditions

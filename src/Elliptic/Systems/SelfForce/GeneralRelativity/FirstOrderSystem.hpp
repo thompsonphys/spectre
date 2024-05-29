@@ -28,14 +28,15 @@ namespace GrSelfForce {
  */
 struct FirstOrderSystem
     : tt::ConformsTo<elliptic::protocols::FirstOrderSystem> {
-  static constexpr size_t volume_dim = 2;
+  static constexpr size_t volume_dim = 3;
 
   using primal_fields = tmpl::list<Tags::MModeRe, Tags::MModeIm>;
   using primal_fluxes =
-      tmpl::list<::Tags::Flux<Tags::MModeRe, tmpl::size_t<2>, Frame::Inertial>,
-                 ::Tags::Flux<Tags::MModeIm, tmpl::size_t<2>, Frame::Inertial>>;
+      tmpl::list<::Tags::Flux<Tags::MModeRe, tmpl::size_t<3>, Frame::Inertial>,
+                 ::Tags::Flux<Tags::MModeIm, tmpl::size_t<3>, Frame::Inertial>>;
 
-  using background_fields = tmpl::list<Tags::Alpha, Tags::Beta, Tags::Gamma>;
+  using background_fields =
+      tmpl::list<Tags::Alpha, Tags::Beta, Tags::GammaRstar, Tags::GammaTheta>;
   using inv_metric_tag = void;
 
   using fluxes_computer = Fluxes;
@@ -43,7 +44,7 @@ struct FirstOrderSystem
   using modify_boundary_data = ModifyBoundaryData;
 
   using boundary_conditions_base =
-      elliptic::BoundaryConditions::BoundaryCondition<2>;
+      elliptic::BoundaryConditions::BoundaryCondition<3>;
 };
 
-}  // namespace ScalarSelfForce
+}  // namespace GrSelfForce

@@ -15,6 +15,7 @@
 #include "NumericalAlgorithms/LinearOperators/PartialDerivatives.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
 #include "Options/String.hpp"
+#include "PointwiseFunctions/AnalyticData/SelfForce/GeneralRelativity/ABC.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/Background.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/InitialGuess.hpp"
 #include "Utilities/Gsl.hpp"
@@ -46,8 +47,8 @@ class CircularOrbit : public elliptic::analytic_data::Background,
         "Mode number 'm' of the scalar field";
     using type = int;
   };
-  using options = tmpl::list<BlackHoleMass, BlackHoleSpin,
-                             OrbitalRadius, MModeNumber>;
+  using options =
+      tmpl::list<BlackHoleMass, BlackHoleSpin, OrbitalRadius, MModeNumber>;
   static constexpr Options::String help =
       "Quasicircular orbit of a point mass in Kerr spacetime";
 
@@ -67,35 +68,35 @@ class CircularOrbit : public elliptic::analytic_data::Background,
   using PUP::able::register_constructor;
   WRAPPED_PUPable_decl_template(CircularOrbit);
 
-  tnsr::I<double, 2> puncture_position() const;
+  tnsr::I<double, 3> puncture_position() const;
 
   // Background
-  tuples::TaggedTuple<Tags::Alpha, Tags::Beta, Tags::Gamma> variables(
-      const tnsr::I<DataVector, 2>& x,
-      tmpl::list<Tags::Alpha, Tags::Beta, Tags::Gamma> /*meta*/) const;
+  tuples::TaggedTuple<Tags::Alpha, Tags::Beta, Tags::GammaRstar, Tags::GammaTheta> variables(
+      const tnsr::I<DataVector, 3>& x,
+      tmpl::list<Tags::Alpha, Tags::Beta, Tags::GammaRstar, Tags::GammaTheta> /*meta*/) const;
 
   // Initial guess
   tuples::TaggedTuple<Tags::MModeRe, Tags::MModeIm> variables(
-      const tnsr::I<DataVector, 2>& x,
+      const tnsr::I<DataVector, 3>& x,
       tmpl::list<Tags::MModeRe, Tags::MModeIm> /*meta*/) const;
 
   // Fixed sources
   tuples::TaggedTuple<
       ::Tags::FixedSource<Tags::MModeRe>, ::Tags::FixedSource<Tags::MModeIm>,
       Tags::SingularField,
-      ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>,
+      ::Tags::deriv<Tags::SingularField, tmpl::size_t<3>, Frame::Inertial>,
       Tags::BoyerLindquistRadius>
-  variables(const tnsr::I<DataVector, 2>& x,
+  variables(const tnsr::I<DataVector, 3>& x,
             tmpl::list<::Tags::FixedSource<Tags::MModeRe>,
                        ::Tags::FixedSource<Tags::MModeIm>, Tags::SingularField,
-                       ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>,
+                       ::Tags::deriv<Tags::SingularField, tmpl::size_t<3>,
                                      Frame::Inertial>,
                        Tags::BoyerLindquistRadius> /*meta*/) const;
 
   template <typename... RequestedTags>
   tuples::TaggedTuple<RequestedTags...> variables(
-      const tnsr::I<DataVector, 2>& x, const Mesh<2>& /*mesh*/,
-      const InverseJacobian<DataVector, 2, Frame::ElementLogical,
+      const tnsr::I<DataVector, 3>& x, const Mesh<3>& /*mesh*/,
+      const InverseJacobian<DataVector, 3, Frame::ElementLogical,
                             Frame::Inertial>& /*inv_jacobian*/,
       tmpl::list<RequestedTags...> /*meta*/) const {
     return variables(x, tmpl::list<RequestedTags...>{});

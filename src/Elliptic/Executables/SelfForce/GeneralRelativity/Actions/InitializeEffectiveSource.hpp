@@ -73,7 +73,7 @@ struct InitializeEffectiveSource : tt::ConformsTo<::amr::protocols::Projector> {
       db::wrap_tags_in<::Tags::FixedSource, typename System::primal_fields>>;
   using singular_vars_tag = ::Tags::Variables<tmpl::list<
       Tags::SingularField,
-      ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>>>;
+      ::Tags::deriv<Tags::SingularField, tmpl::size_t<Dim>, Frame::Inertial>>>;
   using singular_vars_on_faces_tag = domain::Tags::Faces<
       Dim,
       ::Tags::Variables<tmpl::list<
@@ -81,7 +81,7 @@ struct InitializeEffectiveSource : tt::ConformsTo<::amr::protocols::Projector> {
 
   using analytic_tags_list = tmpl::push_back<
       typename fixed_sources_tag::tags_list, Tags::SingularField,
-      ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>,
+      ::Tags::deriv<Tags::SingularField, tmpl::size_t<Dim>, Frame::Inertial>,
       Tags::BoyerLindquistRadius>;
 
   template <typename Tag>
@@ -145,7 +145,8 @@ struct InitializeEffectiveSource : tt::ConformsTo<::amr::protocols::Projector> {
 
     // Check if this element and its neighbors solve for the regular field or
     // the full field
-    const tnsr::I<double, 2> puncture_pos = circular_orbit.puncture_position();
+    const tnsr::I<double, Dim> puncture_pos =
+        circular_orbit.puncture_position();
     const auto puncture_in_element =
         [&puncture_pos, &domain](const ElementId<Dim>& element_id) -> bool {
       const auto& block = domain.blocks()[element_id.block_id()];
@@ -192,9 +193,9 @@ struct InitializeEffectiveSource : tt::ConformsTo<::amr::protocols::Projector> {
       get<::Tags::FixedSource<Tags::MModeIm>>(*fixed_sources) =
           get<::Tags::FixedSource<Tags::MModeIm>>(vars);
       get<Tags::SingularField>(*singular_vars) = get<Tags::SingularField>(vars);
-      get<::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>>(
-          *singular_vars) =
-          get<::Tags::deriv<Tags::SingularField, tmpl::size_t<2>,
+      get<::Tags::deriv<Tags::SingularField, tmpl::size_t<Dim>,
+                        Frame::Inertial>>(*singular_vars) =
+          get<::Tags::deriv<Tags::SingularField, tmpl::size_t<Dim>,
                             Frame::Inertial>>(vars);
       *bl_radius = get<Tags::BoyerLindquistRadius>(vars);
       // Apply DG mass matrix to the fixed sources if the DG operator is massive
@@ -210,19 +211,20 @@ struct InitializeEffectiveSource : tt::ConformsTo<::amr::protocols::Projector> {
             inertial_coords_on_face, analytic_tags_list{});
         const auto background_on_face = circular_orbit.variables(
             inertial_coords_on_face,
-            tmpl::list<Tags::Alpha, Tags::Beta, Tags::Gamma>{});
+            tmpl::list<Tags::Alpha, Tags::Beta, Tags::GammaRstar,
+                       Tags::GammaTheta>{});
         auto& singular_vars_on_face = (*singular_vars_on_faces)[direction];
         singular_vars_on_face.initialize(
             inertial_coords_on_face.begin()->size());
         get<Tags::SingularField>(singular_vars_on_face) =
             get<Tags::SingularField>(vars_on_face);
         const auto& deriv_singular_field_on_face =
-            get<::Tags::deriv<Tags::SingularField, tmpl::size_t<2>,
+            get<::Tags::deriv<Tags::SingularField, tmpl::size_t<Dim>,
                               Frame::Inertial>>(vars_on_face);
         const auto& alpha_on_face = get<Tags::Alpha>(background_on_face);
-        tnsr::Ijj<ComplexDataVector, Dim> singular_field_flux_on_face{};
+        tnsr::Iaa<ComplexDataVector, Dim> singular_field_flux_on_face{};
         GrSelfForce::fluxes(make_not_null(&singular_field_flux_on_face),
-                                alpha_on_face, deriv_singular_field_on_face);
+                            alpha_on_face, deriv_singular_field_on_face);
         normal_dot_flux(
             make_not_null(&get<::Tags::NormalDotFlux<Tags::SingularField>>(
                 singular_vars_on_face)),

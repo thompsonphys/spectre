@@ -132,11 +132,10 @@ CircularOrbit::variables(
   const DataVector delta = square(r) - 2.0 * M * r + square(a);
   const DataVector r_sq_plus_a_sq = square(r) + square(a);
   const DataVector r_sq_plus_a_sq_sq = square(r_sq_plus_a_sq);
-  // TODO: check sign of delta_phi
   const DataVector delta_phi = m_mode_number_ * a / (r_plus - r_minus) *
                                log((r - r_plus) / (r - r_minus));
   const ComplexDataVector rotation =
-      cos(delta_phi) + std::complex<double>(0., 1.) * sin(delta_phi);
+      cos(delta_phi) - std::complex<double>(0., 1.) * sin(delta_phi);
   tuples::TaggedTuple<
       ::Tags::FixedSource<Tags::MMode>, Tags::SingularField,
       ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>,

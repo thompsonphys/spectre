@@ -13,12 +13,12 @@ namespace GrSelfForce::BoundaryConditions {
 Angular::Angular(int m_mode_number) : m_mode_number_(m_mode_number) {}
 
 void Angular::apply(
-    const gsl::not_null<tnsr::ii<DataVector, 2>*> field_re,
-    const gsl::not_null<tnsr::ii<DataVector, 2>*> field_im,
-    const gsl::not_null<tnsr::ii<DataVector, 2>*> n_dot_field_gradient_re,
-    const gsl::not_null<tnsr::ii<DataVector, 2>*> n_dot_field_gradient_im,
-    const tnsr::ijj<DataVector, 2>& deriv_field_re,
-    const tnsr::ijj<DataVector, 2>& deriv_field_im) const {
+    const gsl::not_null<tnsr::aa<DataVector, 3>*> field_re,
+    const gsl::not_null<tnsr::aa<DataVector, 3>*> field_im,
+    const gsl::not_null<tnsr::aa<DataVector, 3>*> n_dot_field_gradient_re,
+    const gsl::not_null<tnsr::aa<DataVector, 3>*> n_dot_field_gradient_im,
+    const tnsr::iaa<DataVector, 3>& deriv_field_re,
+    const tnsr::iaa<DataVector, 3>& deriv_field_im) const {
   // TODO
   // if (m_mode_number_ == 0) {
   //   get<0>(*n_dot_field_gradient) = 0.;
@@ -30,14 +30,14 @@ void Angular::apply(
 }
 
 void Angular::apply_linearized(
-    const gsl::not_null<tnsr::ii<DataVector, 2>*> field_correction_re,
-    const gsl::not_null<tnsr::ii<DataVector, 2>*> field_correction_im,
-    const gsl::not_null<tnsr::ii<DataVector, 2>*>
+    const gsl::not_null<tnsr::aa<DataVector, 3>*> field_correction_re,
+    const gsl::not_null<tnsr::aa<DataVector, 3>*> field_correction_im,
+    const gsl::not_null<tnsr::aa<DataVector, 3>*>
         n_dot_field_correction_gradient_re,
-    const gsl::not_null<tnsr::ii<DataVector, 2>*>
+    const gsl::not_null<tnsr::aa<DataVector, 3>*>
         n_dot_field_correction_gradient_im,
-    const tnsr::ijj<DataVector, 2>& deriv_field_correction_re,
-    const tnsr::ijj<DataVector, 2>& deriv_field_correction_im) const {
+    const tnsr::iaa<DataVector, 3>& deriv_field_correction_re,
+    const tnsr::iaa<DataVector, 3>& deriv_field_correction_im) const {
   apply(field_correction_re, field_correction_im,
         n_dot_field_correction_gradient_re, n_dot_field_correction_gradient_im,
         deriv_field_correction_re, deriv_field_correction_im);

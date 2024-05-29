@@ -22,12 +22,12 @@ Sommerfeld::Sommerfeld(const double black_hole_mass,
       outgoing_(outgoing) {}
 
 void Sommerfeld::apply(
-    const gsl::not_null<tnsr::ii<DataVector, 2>*> field_re,
-    const gsl::not_null<tnsr::ii<DataVector, 2>*> field_im,
-    const gsl::not_null<tnsr::ii<DataVector, 2>*> n_dot_field_gradient_re,
-    const gsl::not_null<tnsr::ii<DataVector, 2>*> n_dot_field_gradient_im,
-    const tnsr::ijj<DataVector, 2>& deriv_field_re,
-    const tnsr::ijj<DataVector, 2>& deriv_field_im) const {
+    const gsl::not_null<tnsr::aa<DataVector, 3>*> field_re,
+    const gsl::not_null<tnsr::aa<DataVector, 3>*> field_im,
+    const gsl::not_null<tnsr::aa<DataVector, 3>*> n_dot_field_gradient_re,
+    const gsl::not_null<tnsr::aa<DataVector, 3>*> n_dot_field_gradient_im,
+    const tnsr::iaa<DataVector, 3>& deriv_field_re,
+    const tnsr::iaa<DataVector, 3>& deriv_field_im) const {
   // Assuming circular orbit here!
   // const double a = black_hole_spin_ * black_hole_mass_;
   // const double M = black_hole_mass_;
@@ -38,21 +38,22 @@ void Sommerfeld::apply(
   //     get<0>(*field) + std::complex<double>(0.0, 1.0) * get<1>(*field);
   // const ComplexDataVector n_dot_field_gradient_complex =
   //     std::complex<double>(0.0,
-  //                          (outgoing_ ? 1.0 : -1.0) * m_mode_number_ * omega) *
+  //                          (outgoing_ ? 1.0 : -1.0) * m_mode_number_ * omega)
+  //                          *
   //     get(field_complex);
   // get<0>(*n_dot_field_gradient) = real(n_dot_field_gradient_complex);
   // get<1>(*n_dot_field_gradient) = imag(n_dot_field_gradient_complex);
 }
 
 void Sommerfeld::apply_linearized(
-    const gsl::not_null<tnsr::ii<DataVector, 2>*> field_correction_re,
-    const gsl::not_null<tnsr::ii<DataVector, 2>*> field_correction_im,
-    const gsl::not_null<tnsr::ii<DataVector, 2>*>
+    const gsl::not_null<tnsr::aa<DataVector, 3>*> field_correction_re,
+    const gsl::not_null<tnsr::aa<DataVector, 3>*> field_correction_im,
+    const gsl::not_null<tnsr::aa<DataVector, 3>*>
         n_dot_field_correction_gradient_re,
-    const gsl::not_null<tnsr::ii<DataVector, 2>*>
+    const gsl::not_null<tnsr::aa<DataVector, 3>*>
         n_dot_field_correction_gradient_im,
-    const tnsr::ijj<DataVector, 2>& deriv_field_correction_re,
-    const tnsr::ijj<DataVector, 2>& deriv_field_correction_im) const {
+    const tnsr::iaa<DataVector, 3>& deriv_field_correction_re,
+    const tnsr::iaa<DataVector, 3>& deriv_field_correction_im) const {
   apply(field_correction_re, field_correction_im,
         n_dot_field_correction_gradient_re, n_dot_field_correction_gradient_im,
         deriv_field_correction_re, deriv_field_correction_im);

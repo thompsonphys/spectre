@@ -29,20 +29,20 @@ CircularOrbit::CircularOrbit(const double black_hole_mass,
       orbital_radius_(orbital_radius),
       m_mode_number_(m_mode_number) {}
 
-tnsr::I<double, 2> CircularOrbit::puncture_position() const {
+tnsr::I<double, 3> CircularOrbit::puncture_position() const {
   const double a = black_hole_spin_ * black_hole_mass_;
   const double M = black_hole_mass_;
   const double r_plus = M * (1. + sqrt(1. - square(black_hole_spin_)));
   const double r_0 = orbital_radius_;
   const double r_star = korb_rsfromrsubtrplus(r_0 - r_plus, a);
-  return tnsr::I<double, 2>{{{r_star, M_PI_2}}};
+  return tnsr::I<double, 3>{{{r_star, M_PI_2, 0.}}};
 }
 
 // Background
-tuples::TaggedTuple<Tags::Alpha, Tags::Beta, Tags::Gamma>
-CircularOrbit::variables(
-    const tnsr::I<DataVector, 2>& x,
-    tmpl::list<Tags::Alpha, Tags::Beta, Tags::Gamma> /*meta*/) const {
+tuples::TaggedTuple<Tags::Alpha, Tags::Beta, Tags::GammaRstar, Tags::GammaTheta>
+CircularOrbit::variables(const tnsr::I<DataVector, 3>& x,
+                         tmpl::list<Tags::Alpha, Tags::Beta, Tags::GammaRstar,
+                                    Tags::GammaTheta> /*meta*/) const {
   const double a = black_hole_spin_ * black_hole_mass_;
   const double M = black_hole_mass_;
   const double r_plus = M * (1. + sqrt(1. - square(black_hole_spin_)));
@@ -61,28 +61,32 @@ CircularOrbit::variables(
   const DataVector sin_theta_squared = square(sin_theta);
   const DataVector sigma_squared =
       r_sq_plus_a_sq_sq - square(a) * delta * sin_theta_squared;
-  tuples::TaggedTuple<Tags::Alpha, Tags::Beta, Tags::Gamma> result{};
+  tuples::TaggedTuple<Tags::Alpha, Tags::Beta, Tags::GammaRstar,
+                      Tags::GammaTheta>
+      result{};
   auto& alpha = get<Tags::Alpha>(result);
   auto& beta = get<Tags::Beta>(result);
-  auto& gamma = get<Tags::Gamma>(result);
+  auto& gamma_rstar = get<Tags::GammaRstar>(result);
+  auto& gamma_theta = get<Tags::GammaTheta>(result);
   get(alpha) = delta / r_sq_plus_a_sq_sq;
   const ComplexDataVector temp1 =
       1. / r * std::complex<double>(0., 2. * a * m_mode_number_);
-  get(beta) = (-square(m_mode_number_ * omega) * sigma_squared +
-               4. * a * square(m_mode_number_) * omega * M * r +
-               delta * (square(m_mode_number_) / sin_theta_squared +
-                        2. * M / r * (1. - square(a) / M / r) + temp1)) /
-              r_sq_plus_a_sq_sq;
-  get<0>(gamma) =
-      -1. / r_sq_plus_a_sq * std::complex<double>(0., 2. * a * m_mode_number_) +
-      2. * square(a) * get(alpha) / r;
-  get<1>(gamma) = -get(alpha) * cos_theta / sin_theta;
+  // get(beta) = (-square(m_mode_number_ * omega) * sigma_squared +
+  //              4. * a * square(m_mode_number_) * omega * M * r +
+  //              delta * (square(m_mode_number_) / sin_theta_squared +
+  //                       2. * M / r * (1. - square(a) / M / r) + temp1)) /
+  //             r_sq_plus_a_sq_sq;
+  // get<0>(gamma) =
+  //     -1. / r_sq_plus_a_sq * std::complex<double>(0., 2. * a *
+  //     m_mode_number_) +
+  //     2. * square(a) * get(alpha) / r;
+  // get<1>(gamma) = -get(alpha) * cos_theta / sin_theta;
   return result;
 }
 
 // Initial guess
 tuples::TaggedTuple<Tags::MModeRe, Tags::MModeIm> CircularOrbit::variables(
-    const tnsr::I<DataVector, 2>& x,
+    const tnsr::I<DataVector, 3>& x,
     tmpl::list<Tags::MModeRe, Tags::MModeIm> /*meta*/) const {
   tuples::TaggedTuple<Tags::MModeRe, Tags::MModeIm> result{};
   auto& field_re = get<Tags::MModeRe>(result);
@@ -98,14 +102,14 @@ tuples::TaggedTuple<Tags::MModeRe, Tags::MModeIm> CircularOrbit::variables(
 tuples::TaggedTuple<
     ::Tags::FixedSource<Tags::MModeRe>, ::Tags::FixedSource<Tags::MModeIm>,
     Tags::SingularField,
-    ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>,
+    ::Tags::deriv<Tags::SingularField, tmpl::size_t<3>, Frame::Inertial>,
     Tags::BoyerLindquistRadius>
 CircularOrbit::variables(
-    const tnsr::I<DataVector, 2>& x,
+    const tnsr::I<DataVector, 3>& x,
     tmpl::list<
         ::Tags::FixedSource<Tags::MModeRe>, ::Tags::FixedSource<Tags::MModeIm>,
         Tags::SingularField,
-        ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>,
+        ::Tags::deriv<Tags::SingularField, tmpl::size_t<3>, Frame::Inertial>,
         Tags::BoyerLindquistRadius> /*meta*/) const {
   const double a = black_hole_spin_ * black_hole_mass_;
   const double M = black_hole_mass_;
@@ -140,23 +144,23 @@ CircularOrbit::variables(
   const DataVector delta_phi = m_mode_number_ * a / (r_plus - r_minus) *
                                log((r - r_plus) / (r - r_minus));
   const ComplexDataVector rotation =
-      cos(delta_phi) + std::complex<double>(0., 1.) * sin(delta_phi);
+      cos(delta_phi) - std::complex<double>(0., 1.) * sin(delta_phi);
   tuples::TaggedTuple<
       ::Tags::FixedSource<Tags::MModeRe>, ::Tags::FixedSource<Tags::MModeIm>,
       Tags::SingularField,
-      ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>,
+      ::Tags::deriv<Tags::SingularField, tmpl::size_t<3>, Frame::Inertial>,
       Tags::BoyerLindquistRadius>
       result{};
   get(get<Tags::BoyerLindquistRadius>(result)) = r;
   const size_t num_points = get<0>(x).size();
-  tnsr::ii<ComplexDataVector, 2> effective_source{num_points};
-  tnsr::ii<ComplexDataVector, 2>& singular_field =
+  tnsr::aa<ComplexDataVector, 3> effective_source{num_points};
+  tnsr::aa<ComplexDataVector, 3>& singular_field =
       get<Tags::SingularField>(result);
   for (size_t i = 0; i < singular_field.size(); i++) {
     singular_field[i].destructive_resize(num_points);
   }
-  tnsr::ijj<ComplexDataVector, 2>& deriv_singular_field =
-      get<::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>>(
+  tnsr::iaa<ComplexDataVector, 3>& deriv_singular_field =
+      get<::Tags::deriv<Tags::SingularField, tmpl::size_t<3>, Frame::Inertial>>(
           result);
   for (size_t i = 0; i < deriv_singular_field.size(); i++) {
     deriv_singular_field[i].destructive_resize(num_points);

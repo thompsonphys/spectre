@@ -6,7 +6,7 @@
 #include <cstddef>
 
 #include "DataStructures/DataBox/PrefixHelpers.hpp"
-#include "Domain/Creators/Rectangle.hpp"
+#include "Domain/Creators/Brick.hpp"
 #include "Domain/RadiallyCompressedCoordinates.hpp"
 #include "Domain/Tags.hpp"
 #include "Elliptic/Actions/RunEventsAndTriggers.hpp"
@@ -59,8 +59,8 @@ struct Metavariables {
       "Find the self force for a point mass by solving a 2D elliptic "
       "problem."};
 
-  static constexpr size_t volume_dim = 2;
   using system = GrSelfForce::FirstOrderSystem;
+  static constexpr size_t volume_dim = system::volume_dim;
   using solver = elliptic::Solver<Metavariables>;
 
   using observe_fields = tmpl::append<
@@ -81,7 +81,7 @@ struct Metavariables {
       : tt::ConformsTo<Options::protocols::FactoryCreation> {
     using factory_classes = tmpl::map<
         tmpl::pair<DomainCreator<volume_dim>,
-                   tmpl::list<domain::creators::Rectangle>>,
+                   tmpl::list<domain::creators::Brick>>,
         tmpl::pair<elliptic::analytic_data::Background,
                    tmpl::list<GrSelfForce::AnalyticData::CircularOrbit>>,
         tmpl::pair<elliptic::analytic_data::InitialGuess,
