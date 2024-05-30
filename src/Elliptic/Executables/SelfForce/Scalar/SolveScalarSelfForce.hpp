@@ -6,6 +6,7 @@
 #include <cstddef>
 
 #include "DataStructures/DataBox/PrefixHelpers.hpp"
+#include "Domain/Creators/AlignedLattice.hpp"
 #include "Domain/Creators/Rectangle.hpp"
 #include "Domain/RadiallyCompressedCoordinates.hpp"
 #include "Domain/Tags.hpp"
@@ -81,7 +82,8 @@ struct Metavariables {
       : tt::ConformsTo<Options::protocols::FactoryCreation> {
     using factory_classes = tmpl::map<
         tmpl::pair<DomainCreator<volume_dim>,
-                   tmpl::list<domain::creators::Rectangle>>,
+                   tmpl::list<domain::creators::Rectangle,
+                              domain::creators::AlignedLattice<2>>>,
         tmpl::pair<elliptic::analytic_data::Background,
                    tmpl::list<ScalarSelfForce::AnalyticData::CircularOrbit>>,
         tmpl::pair<elliptic::analytic_data::InitialGuess,
