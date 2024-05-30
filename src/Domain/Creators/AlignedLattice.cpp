@@ -54,7 +54,10 @@ AlignedLattice<VolumeDim>::AlignedLattice(
       number_of_blocks_by_dim_{
           map_array(block_bounds_,
                     [](const std::vector<double>& v) { return v.size() - 1; })},
-      boundary_condition_(nullptr) {
+      boundary_condition_in_lower_x_(nullptr),
+      boundary_condition_in_upper_x_(nullptr),
+      boundary_condition_in_lower_y_(nullptr),
+      boundary_condition_in_upper_y_(nullptr) {
   if (not blocks_to_exclude_.empty() and
       alg::any_of(is_periodic_in_, [](const bool t) { return t; })) {
     PARSE_ERROR(context,
@@ -92,7 +95,13 @@ AlignedLattice<VolumeDim>::AlignedLattice(
     typename RefinedGridPoints::type refined_grid_points,
     typename BlocksToExclude::type blocks_to_exclude,
     std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
-        boundary_condition,
+        boundary_condition_in_lower_x,
+    std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+        boundary_condition_in_upper_x,
+    std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+        boundary_condition_in_lower_y,
+    std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+        boundary_condition_in_upper_y,
     const Options::Context& context)
     // clang-tidy: trivially copyable
     : block_bounds_(std::move(block_bounds)),  // NOLINT
@@ -107,20 +116,41 @@ AlignedLattice<VolumeDim>::AlignedLattice(
       number_of_blocks_by_dim_{
           map_array(block_bounds_,
                     [](const std::vector<double>& v) { return v.size() - 1; })},
-      boundary_condition_(std::move(boundary_condition)) {
+      boundary_condition_in_lower_x_(std::move(boundary_condition_in_lower_x)),
+      boundary_condition_in_upper_x_(std::move(boundary_condition_in_upper_x)),
+      boundary_condition_in_lower_y_(std::move(boundary_condition_in_lower_y)),
+      boundary_condition_in_upper_y_(std::move(boundary_condition_in_upper_y)) {
   using domain::BoundaryConditions::is_none;
-  if (is_none(boundary_condition_)) {
+  ASSERT(boundary_condition_in_lower_x_ != nullptr and
+             boundary_condition_in_upper_x_ != nullptr and
+             boundary_condition_in_lower_y_ != nullptr and
+             boundary_condition_in_upper_y_ != nullptr,
+         "None of the boundary conditions can be nullptr.");
+  if (is_none(boundary_condition_in_lower_x_) or
+      is_none(boundary_condition_in_upper_x_) or
+      is_none(boundary_condition_in_lower_y_) or
+      is_none(boundary_condition_in_upper_y_)) {
     PARSE_ERROR(
         context,
         "None boundary condition is not supported. If you would like an "
         "outflow-type boundary condition, you must use that.");
   }
   using domain::BoundaryConditions::is_periodic;
-  if (is_periodic(boundary_condition_)) {
+  if ((is_periodic(boundary_condition_in_lower_x_) !=
+       is_periodic(boundary_condition_in_upper_x_)) or
+      (is_periodic(boundary_condition_in_lower_y_) !=
+       is_periodic(boundary_condition_in_upper_y_))) {
+    PARSE_ERROR(context,
+                "Periodic boundary condition must be applied for both "
+                "upper and lower direction.");
+  }
+  if (is_periodic(boundary_condition_in_lower_x_) and
+      is_periodic(boundary_condition_in_upper_x_)) {
     is_periodic_in_[0] = true;
+  }
+  if (is_periodic(boundary_condition_in_lower_y_) and
+      is_periodic(boundary_condition_in_upper_y_)) {
     is_periodic_in_[1] = true;
-    is_periodic_in_[2] = true;
-    boundary_condition_ = nullptr;
   }
   if (not blocks_to_exclude_.empty() and
       alg::any_of(is_periodic_in_, [](const bool t) { return t; })) {
@@ -163,7 +193,11 @@ template <size_t VolumeDim>
 std::vector<DirectionMap<
     VolumeDim, std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>>>
 AlignedLattice<VolumeDim>::external_boundary_conditions() const {
-  if (boundary_condition_ == nullptr) {
+  if (boundary_condition_in_lower_x_ == nullptr) {
+    ASSERT(boundary_condition_in_upper_x_ == nullptr and
+               boundary_condition_in_lower_y_ == nullptr and
+               boundary_condition_in_upper_y_ == nullptr,
+           "Boundary conditions must be specified in all or no directions");
     return {};
   }
   // Set boundary conditions by using the computed domain's external
@@ -177,8 +211,21 @@ AlignedLattice<VolumeDim>::external_boundary_conditions() const {
   for (size_t i = 0; i < blocks.size(); ++i) {
     for (const Direction<VolumeDim>& external_direction :
          blocks[i].external_boundaries()) {
-      boundary_conditions[i][external_direction] =
-          boundary_condition_->get_clone();
+      if (external_direction == Direction<2>::lower_xi()) {
+        boundary_conditions[i][external_direction] =
+            boundary_condition_in_lower_x_->get_clone();
+      } else if (external_direction == Direction<2>::upper_xi()) {
+        boundary_conditions[i][external_direction] =
+            boundary_condition_in_upper_x_->get_clone();
+      } else if (external_direction == Direction<2>::lower_eta()) {
+        boundary_conditions[i][external_direction] =
+            boundary_condition_in_lower_y_->get_clone();
+      } else if (external_direction == Direction<2>::upper_eta()) {
+        boundary_conditions[i][external_direction] =
+            boundary_condition_in_upper_y_->get_clone();
+      } else {
+        ERROR("Unknown external direction encountered: " << external_direction);
+      }
     }
   }
   return boundary_conditions;
@@ -230,9 +277,9 @@ AlignedLattice<VolumeDim>::initial_refinement_levels() const {
                                   refined_refinement_);
 }
 
-template class AlignedLattice<1>;
+// template class AlignedLattice<1>;
 template class AlignedLattice<2>;
-template class AlignedLattice<3>;
+// template class AlignedLattice<3>;
 template std::ostream& operator<<(std::ostream& /*s*/,
                                   const RefinementRegion<1>& /*unused*/);
 template std::ostream& operator<<(std::ostream& /*s*/,

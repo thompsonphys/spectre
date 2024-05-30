@@ -151,11 +151,42 @@ class AlignedLattice : public DomainCreator<VolumeDim> {
   };
 
   template <typename BoundaryConditionsBase>
-  struct BoundaryCondition {
-    static std::string name() { return "BoundaryCondition"; }
+  struct LowerUpperBoundaryCondition {
     static constexpr Options::String help =
-        "The boundary condition to impose on all sides.";
-    using type = std::unique_ptr<BoundaryConditionsBase>;
+        "Lower and upper Boundary Conditions";
+    struct LowerBC {
+      using type = std::unique_ptr<BoundaryConditionsBase>;
+      static constexpr Options::String help = "Lower Boundary Condition";
+      static std::string name() { return "LowerBoundaryCondition"; };
+    };
+    struct UpperBC {
+      using type = std::unique_ptr<BoundaryConditionsBase>;
+      static constexpr Options::String help = "Upper Boundary Condition";
+      static std::string name() { return "UpperBoundaryCondition"; };
+    };
+    LowerUpperBoundaryCondition(typename LowerBC::type lower_bc,
+                                typename UpperBC::type upper_bc)
+        : lower(std::move(lower_bc)), upper(std::move(upper_bc)) {};
+    LowerUpperBoundaryCondition() = default;
+    std::unique_ptr<BoundaryConditionsBase> lower;
+    std::unique_ptr<BoundaryConditionsBase> upper;
+    using options = tmpl::list<LowerBC, UpperBC>;
+  };
+
+  template <typename BoundaryConditionsBase, size_t Dim>
+  struct BoundaryCondition {
+    static std::string name() {
+      return "BoundaryConditionIn" +
+             std::string{Dim == 0 ? 'X' : (Dim == 1 ? 'Y' : 'Z')};
+    };
+    static constexpr Options::String help = {
+        "The boundary condition to be imposed for boundaries at "
+        "the given direction. Either specify one B.C. to be imposed for both "
+        "lower and upper boundary or a pair of B.C. for lower and upper "
+        "boundary respectively."};
+    using type =
+        std::variant<std::unique_ptr<BoundaryConditionsBase>,
+                     LowerUpperBoundaryCondition<BoundaryConditionsBase>>;
   };
 
   using common_options =
@@ -169,9 +200,14 @@ class AlignedLattice : public DomainCreator<VolumeDim> {
       tmpl::conditional_t<
           domain::BoundaryConditions::has_boundary_conditions_base_v<
               typename Metavariables::system>,
-          tmpl::list<BoundaryCondition<
-              domain::BoundaryConditions::get_boundary_conditions_base<
-                  typename Metavariables::system>>>,
+          tmpl::list<BoundaryCondition<domain::BoundaryConditions::
+                                           get_boundary_conditions_base<
+                                               typename Metavariables::system>,
+                                       0>,
+                     BoundaryCondition<domain::BoundaryConditions::
+                                           get_boundary_conditions_base<
+                                               typename Metavariables::system>,
+                                       1>>,
           options_periodic>>;
 
   static constexpr Options::String help = {
@@ -202,8 +238,30 @@ class AlignedLattice : public DomainCreator<VolumeDim> {
                  typename RefinedGridPoints::type refined_grid_points,
                  typename BlocksToExclude::type blocks_to_exclude,
                  std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
-                     boundary_condition = nullptr,
+                     boundary_condition_in_lower_x,
+                 std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+                     boundary_condition_in_upper_x,
+                 std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+                     boundary_condition_in_lower_y,
+                 std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+                     boundary_condition_in_upper_y,
                  const Options::Context& context = {});
+
+  template <typename BoundaryConditionsBase>
+  AlignedLattice(
+      typename BlockBounds::type block_bounds,
+      typename InitialLevels::type initial_refinement_levels,
+      typename InitialGridPoints::type initial_number_of_grid_points,
+      typename RefinedLevels::type refined_refinement,
+      typename RefinedGridPoints::type refined_grid_points,
+      typename BlocksToExclude::type blocks_to_exclude,
+      std::variant<std::unique_ptr<BoundaryConditionsBase>,
+                   LowerUpperBoundaryCondition<BoundaryConditionsBase>>
+          boundary_conditions_in_x,
+      std::variant<std::unique_ptr<BoundaryConditionsBase>,
+                   LowerUpperBoundaryCondition<BoundaryConditionsBase>>
+          boundary_conditions_in_y,
+      const Options::Context& context = {});
 
   AlignedLattice() = default;
   AlignedLattice(const AlignedLattice&) = delete;
@@ -237,7 +295,77 @@ class AlignedLattice : public DomainCreator<VolumeDim> {
   typename BlocksToExclude::type blocks_to_exclude_{};
   Index<VolumeDim> number_of_blocks_by_dim_{};
   std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
-      boundary_condition_{};
+      boundary_condition_in_lower_x_;
+  std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+      boundary_condition_in_upper_x_;
+  std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+      boundary_condition_in_lower_y_;
+  std::unique_ptr<domain::BoundaryConditions::BoundaryCondition>
+      boundary_condition_in_upper_y_;
 };
+
+template <size_t Dim>
+template <typename BoundaryConditionsBase>
+AlignedLattice<Dim>::AlignedLattice(
+    typename BlockBounds::type block_bounds,
+    typename InitialLevels::type initial_refinement_levels,
+    typename InitialGridPoints::type initial_number_of_grid_points,
+    typename RefinedLevels::type refined_refinement,
+    typename RefinedGridPoints::type refined_grid_points,
+    typename BlocksToExclude::type blocks_to_exclude,
+    std::variant<std::unique_ptr<BoundaryConditionsBase>,
+                 LowerUpperBoundaryCondition<BoundaryConditionsBase>>
+        boundary_conditions_in_x,
+    std::variant<std::unique_ptr<BoundaryConditionsBase>,
+                 LowerUpperBoundaryCondition<BoundaryConditionsBase>>
+        boundary_conditions_in_y,
+    const Options::Context& context)
+    : AlignedLattice(
+          std::move(block_bounds), initial_refinement_levels,
+          initial_number_of_grid_points, refined_refinement,
+          refined_grid_points, blocks_to_exclude,
+          std::holds_alternative<std::unique_ptr<BoundaryConditionsBase>>(
+              boundary_conditions_in_x)
+              ? std::get<std::unique_ptr<BoundaryConditionsBase>>(
+                    boundary_conditions_in_x)
+                    ->get_clone()
+              : std::move(
+                    std::get<
+                        LowerUpperBoundaryCondition<BoundaryConditionsBase>>(
+                        boundary_conditions_in_x)
+                        .lower),
+
+          std::holds_alternative<std::unique_ptr<BoundaryConditionsBase>>(
+              boundary_conditions_in_x)
+              ? std::get<std::unique_ptr<BoundaryConditionsBase>>(
+                    boundary_conditions_in_x)
+                    ->get_clone()
+              : std::move(
+                    std::get<
+                        LowerUpperBoundaryCondition<BoundaryConditionsBase>>(
+                        boundary_conditions_in_x)
+                        .upper),
+          std::holds_alternative<std::unique_ptr<BoundaryConditionsBase>>(
+              boundary_conditions_in_y)
+              ? std::get<std::unique_ptr<BoundaryConditionsBase>>(
+                    boundary_conditions_in_y)
+                    ->get_clone()
+              : std::move(
+                    std::get<
+                        LowerUpperBoundaryCondition<BoundaryConditionsBase>>(
+                        boundary_conditions_in_y)
+                        .lower),
+          std::holds_alternative<std::unique_ptr<BoundaryConditionsBase>>(
+              boundary_conditions_in_y)
+              ? std::get<std::unique_ptr<BoundaryConditionsBase>>(
+                    boundary_conditions_in_y)
+                    ->get_clone()
+              : std::move(
+                    std::get<
+                        LowerUpperBoundaryCondition<BoundaryConditionsBase>>(
+                        boundary_conditions_in_y)
+                        .upper),
+          context) {}
+
 }  // namespace creators
 }  // namespace domain
