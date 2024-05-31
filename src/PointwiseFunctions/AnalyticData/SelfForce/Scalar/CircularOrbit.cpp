@@ -48,14 +48,16 @@ CircularOrbit::variables(
   const double a = black_hole_spin_ * black_hole_mass_;
   const double M = black_hole_mass_;
   const double r_plus = M * (1. + sqrt(1. - square(black_hole_spin_)));
+  const double r_minus = M * (1. - sqrt(1. - square(black_hole_spin_)));
   const double r_0 = orbital_radius_;
   const double omega = 1. / (a + sqrt(cube(r_0) / M));
   const auto& r_star = get<0>(x);
   const auto& theta = get<1>(x);
-  const DataVector r = gr::boyer_lindquist_radius_minus_r_plus_from_tortoise(
-                           r_star, M, black_hole_spin_) +
-                       r_plus;
-  const DataVector delta = square(r) - 2.0 * M * r + square(a);
+  const DataVector r_minus_r_plus =
+      gr::boyer_lindquist_radius_minus_r_plus_from_tortoise(r_star, M,
+                                                            black_hole_spin_);
+  const DataVector r = r_minus_r_plus + r_plus;
+  const DataVector delta = r_minus_r_plus * (r - r_minus);
   const DataVector r_sq_plus_a_sq = square(r) + square(a);
   const DataVector r_sq_plus_a_sq_sq = square(r_sq_plus_a_sq);
   const DataVector sin_theta = sin(theta);
@@ -126,10 +128,11 @@ CircularOrbit::variables(
   }
   const auto& r_star = get<0>(x);
   const auto& theta = get<1>(x);
-  const DataVector r = gr::boyer_lindquist_radius_minus_r_plus_from_tortoise(
-                           r_star, M, black_hole_spin_) +
-                       r_plus;
-  const DataVector delta = square(r) - 2.0 * M * r + square(a);
+  const DataVector r_minus_r_plus =
+      gr::boyer_lindquist_radius_minus_r_plus_from_tortoise(r_star, M,
+                                                            black_hole_spin_);
+  const DataVector r = r_minus_r_plus + r_plus;
+  const DataVector delta = r_minus_r_plus * (r - r_minus);
   const DataVector r_sq_plus_a_sq = square(r) + square(a);
   const DataVector r_sq_plus_a_sq_sq = square(r_sq_plus_a_sq);
   const DataVector delta_phi = m_mode_number_ * a / (r_plus - r_minus) *
