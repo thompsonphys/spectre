@@ -78,7 +78,7 @@ CircularOrbit::variables(
   get<0>(gamma) =
       -1. / r_sq_plus_a_sq * std::complex<double>(0., 2. * a * m_mode_number_) +
       2. * square(a) * get(alpha) / r;
-  get<1>(gamma) = -get(alpha) * cos_theta / sin_theta;
+  get<1>(gamma) = -cos_theta / sin_theta;
   return result;
 }
 
