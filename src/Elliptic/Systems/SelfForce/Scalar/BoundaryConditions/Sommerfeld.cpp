@@ -34,9 +34,7 @@ void Sommerfeld::apply(
   get(field_complex) =
       get<0>(*field) + std::complex<double>(0.0, 1.0) * get<1>(*field);
   const ComplexDataVector n_dot_field_gradient_complex =
-      std::complex<double>(0.0,
-                           (outgoing_ ? 1.0 : -1.0) * m_mode_number_ * omega) *
-      get(field_complex);
+      std::complex<double>(0.0, m_mode_number_ * omega) * get(field_complex);
   get<0>(*n_dot_field_gradient) = real(n_dot_field_gradient_complex);
   get<1>(*n_dot_field_gradient) = imag(n_dot_field_gradient_complex);
 }
