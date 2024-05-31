@@ -15,7 +15,7 @@ Background: &background
     ScalarCharge: &scalar_charge 1.
     BlackHoleMass: &bh_mass 1.
     BlackHoleSpin: &bh_spin 0.9
-    OrbitalRadius: &orbital_radius 6.
+    OrbitalRadius: &orbital_radius {{ orbital_radius }}
     MModeNumber: &m_mode_number {{ m }}
 
 InitialGuess: *background
