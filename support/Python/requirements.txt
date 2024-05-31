@@ -16,7 +16,7 @@
 # Click: to compose our Python CLI, load subcommands lazily, and for
 # autocompletion
 click
-h5py >= 3.5.0
+h5py
 # Humanize: For human-readable output like "2 hours ago"
 humanize
 # Jinja2: To work with placeholders in input files and submit scripts

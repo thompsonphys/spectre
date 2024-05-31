@@ -6,6 +6,7 @@
 #include <cstddef>
 
 #include "DataStructures/DataBox/PrefixHelpers.hpp"
+#include "Domain/BoundaryConditions/Periodic.hpp"
 #include "Domain/Creators/Brick.hpp"
 #include "Domain/RadiallyCompressedCoordinates.hpp"
 #include "Domain/Tags.hpp"
@@ -89,7 +90,10 @@ struct Metavariables {
         tmpl::pair<elliptic::analytic_data::AnalyticSolution, tmpl::list<>>,
         tmpl::pair<elliptic::BoundaryConditions::BoundaryCondition<volume_dim>,
                    tmpl::list<GrSelfForce::BoundaryConditions::Angular,
-                              GrSelfForce::BoundaryConditions::Sommerfeld>>,
+                              GrSelfForce::BoundaryConditions::Sommerfeld,
+                              domain::BoundaryConditions::Periodic<
+                                  elliptic::BoundaryConditions::
+                                      BoundaryCondition<volume_dim>>>>,
         tmpl::pair<::amr::Criterion,
                    ::amr::Criteria::standard_criteria<
                        volume_dim, typename system::primal_fields>>,

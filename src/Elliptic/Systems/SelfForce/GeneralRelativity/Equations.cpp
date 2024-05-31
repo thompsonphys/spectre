@@ -14,16 +14,27 @@ namespace GrSelfForce {
 void fluxes(const gsl::not_null<tnsr::Iaa<ComplexDataVector, 3>*> flux,
             const Scalar<ComplexDataVector>& alpha,
             const tnsr::iaa<ComplexDataVector, 3>& field_gradient) {
-  // get<0>(*flux) = get<0>(field_gradient);
-  // get<1>(*flux) = get(alpha) * get<1>(field_gradient);
+  for (size_t a = 0; a < 4; ++a) {
+    for (size_t b = 0; b <= a; ++b) {
+      flux->get(0, a, b) = field_gradient.get(0, a, b);
+      flux->get(1, a, b) = get(alpha) * field_gradient.get(1, a, b);
+      flux->get(2, a, b) = field_gradient.get(2, a, b);
+    }
+  }
 }
 
 void fluxes_on_face(const gsl::not_null<tnsr::Iaa<ComplexDataVector, 3>*> flux,
                     const Scalar<ComplexDataVector>& alpha,
                     const tnsr::I<DataVector, 3>& face_normal_vector,
                     const tnsr::aa<ComplexDataVector, 3>& field) {
-  // get<0>(*flux) = get<0>(face_normal_vector) * get(field);
-  // get<1>(*flux) = get(alpha) * get<1>(face_normal_vector) * get(field);
+  for (size_t a = 0; a < 4; ++a) {
+    for (size_t b = 0; b <= a; ++b) {
+      flux->get(0, a, b) = get<0>(face_normal_vector) * field.get(a, b);
+      flux->get(1, a, b) =
+          get(alpha) * get<1>(face_normal_vector) * field.get(a, b);
+      flux->get(2, a, b) = get<2>(face_normal_vector) * field.get(a, b);
+    }
+  }
 }
 
 void add_sources(const gsl::not_null<tnsr::aa<ComplexDataVector, 3>*> source,
@@ -32,8 +43,17 @@ void add_sources(const gsl::not_null<tnsr::aa<ComplexDataVector, 3>*> source,
                  const tnsr::aaBB<ComplexDataVector, 3>& gamma_theta,
                  const tnsr::aa<ComplexDataVector, 3>& field,
                  const tnsr::Iaa<ComplexDataVector, 3>& flux) {
-  // get(*source) += get(beta) * get(field) + get<0>(gamma) * get<0>(flux) +
-  //                 get<1>(gamma) * get<1>(flux);
+  for (size_t a = 0; a < 4; ++a) {
+    for (size_t b = 0; b <= a; ++b) {
+      for (size_t c = 0; c < 4; ++c) {
+        for (size_t d = 0; d <= c; ++d) {
+          source->get(a, b) += beta.get(a, b, c, d) * field.get(c, d) +
+                               gamma_rstar.get(a, b, c, d) * flux.get(0, c, d) +
+                               gamma_theta.get(a, b, c, d) * flux.get(1, c, d);
+        }
+      }
+    }
+  }
 }
 
 void Fluxes::apply(const gsl::not_null<tnsr::Iaa<DataVector, 3>*> flux_re,

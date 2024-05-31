@@ -15,6 +15,8 @@
 #include "DataStructures/Tensor/EagerMath/Magnitude.hpp"
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/Tags.hpp"
+#include "PointwiseFunctions/AnalyticData/SelfForce/GeneralRelativity/ABC.hpp"
+#include "PointwiseFunctions/AnalyticData/SelfForce/GeneralRelativity/source_convert.hpp"
 #include "PointwiseFunctions/GeneralRelativity/TortoiseCoordinates.hpp"
 #include "Utilities/Gsl.hpp"
 
@@ -68,19 +70,54 @@ CircularOrbit::variables(const tnsr::I<DataVector, 3>& x,
   auto& beta = get<Tags::Beta>(result);
   auto& gamma_rstar = get<Tags::GammaRstar>(result);
   auto& gamma_theta = get<Tags::GammaTheta>(result);
+  const size_t num_points = r.size();
   get(alpha) = delta / r_sq_plus_a_sq_sq;
+  for (size_t i = 0; i < beta.size(); ++i) {
+    beta[i] = ComplexDataVector{num_points, 0.};
+    gamma_rstar[i] = ComplexDataVector{num_points, 0.};
+    gamma_theta[i] = ComplexDataVector{num_points, 0.};
+  }
   const ComplexDataVector temp1 =
       1. / r * std::complex<double>(0., 2. * a * m_mode_number_);
-  // get(beta) = (-square(m_mode_number_ * omega) * sigma_squared +
-  //              4. * a * square(m_mode_number_) * omega * M * r +
-  //              delta * (square(m_mode_number_) / sin_theta_squared +
-  //                       2. * M / r * (1. - square(a) / M / r) + temp1)) /
-  //             r_sq_plus_a_sq_sq;
-  // get<0>(gamma) =
-  //     -1. / r_sq_plus_a_sq * std::complex<double>(0., 2. * a *
-  //     m_mode_number_) +
-  //     2. * square(a) * get(alpha) / r;
-  // get<1>(gamma) = -get(alpha) * cos_theta / sin_theta;
+  // tt, tr, ttheta, tphi, rr, rtheta, rphi, theta theta, theta phi, phi phi
+  double Areal[10][10], Aimag[10][10], Breal[10][10], Bimag[10][10],
+      Creal[10][10], Cimag[10][10];
+  for (size_t i = 0; i < r.size(); i++) {
+    getAreal(m_mode_number_, a, m_mode_number_ * omega, r[i], theta[i], Areal);
+    getAimag(m_mode_number_, a, m_mode_number_ * omega, r[i], theta[i], Aimag);
+    getBreal(m_mode_number_, a, m_mode_number_ * omega, r[i], theta[i], Breal);
+    getBimag(m_mode_number_, a, m_mode_number_ * omega, r[i], theta[i], Bimag);
+    getCreal(m_mode_number_, a, m_mode_number_ * omega, r[i], theta[i], Creal);
+    getCimag(m_mode_number_, a, m_mode_number_ * omega, r[i], theta[i], Cimag);
+    for (size_t a1 = 0; a1 < 4; ++a1) {
+      for (size_t b = 0; b <= a1; ++b) {
+        const size_t matrix_i =
+            tnsr::aa<ComplexDataVector, 3>::get_storage_index(
+                std::array<size_t, 2>{{a1, b}});
+        for (size_t c = 0; c < 4; ++c) {
+          for (size_t d = 0; d <= c; ++d) {
+            const size_t matrix_j =
+                tnsr::aa<ComplexDataVector, 3>::get_storage_index(
+                    std::array<size_t, 2>{{c, d}});
+            beta.get(a1, b, c, d)[i] =
+                -Areal[matrix_i][matrix_j] -
+                std::complex<double>(0., 1.) * Aimag[matrix_i][matrix_j];
+            gamma_rstar.get(a1, b, c, d)[i] =
+                -Breal[matrix_i][matrix_j] -
+                std::complex<double>(0., 1.) * Bimag[matrix_i][matrix_j];
+            gamma_theta.get(a1, b, c, d)[i] =
+                -Creal[matrix_i][matrix_j] -
+                std::complex<double>(0., 1.) * Cimag[matrix_i][matrix_j];
+          }
+        }
+      }
+    }
+  }
+  for (size_t i = 0; i < beta.size(); ++i) {
+    beta[i] *= -1.;
+    gamma_rstar[i] *= -1.;
+    gamma_theta[i] *= -1. / get(alpha);
+  }
   return result;
 }
 
@@ -140,7 +177,6 @@ CircularOrbit::variables(
   const DataVector delta = square(r) - 2.0 * M * r + square(a);
   const DataVector r_sq_plus_a_sq = square(r) + square(a);
   const DataVector r_sq_plus_a_sq_sq = square(r_sq_plus_a_sq);
-  // TODO: check sign of delta_phi
   const DataVector delta_phi = m_mode_number_ * a / (r_plus - r_minus) *
                                log((r - r_plus) / (r - r_minus));
   const ComplexDataVector rotation =
@@ -166,35 +202,43 @@ CircularOrbit::variables(
     deriv_singular_field[i].destructive_resize(num_points);
   }
   struct coordinate x_i;
-  double PhiS[2], dPhiS_dx[8], d2PhiS_dx2[20], src[2];
+  double hS_re[10], hS_im[10], hS_tommy_re[10], hS_tommy_im[10], dhS_dr_re[10],
+      dhS_dr_im[10], dhS_dth_re[10], dhS_dth_im[10], dhS_dph_re[10],
+      dhS_dph_im[10], dhS_dt_re[10], dhS_dt_im[10], src_re[10], src_im[10],
+      src_tommy_re[10], src_tommy_im[10];
   for (size_t i = 0; i < get<0>(x).size(); ++i) {
     x_i.t = 0;
     x_i.r = r[i];
     x_i.theta = theta[i];
     x_i.phi = 0;
-    // effsource_calc_m(m_mode_number_, &x_i, PhiS, dPhiS_dx, d2PhiS_dx2, src);
-    // effective_source[i] = src[0] + std::complex<double>(0., 1.) * src[1];
-    // get(singular_field)[i] = PhiS[0] + std::complex<double>(0., 1.) *
-    // PhiS[1]; get<0>(deriv_singular_field)[i] =
-    //     dPhiS_dx[2] + std::complex<double>(0., 1.) * dPhiS_dx[3];
-    // get<1>(deriv_singular_field)[i] =
-    //     dPhiS_dx[4] + std::complex<double>(0., 1.) * dPhiS_dx[5];
+    effsource_calc_m(m_mode_number_, &x_i, hS_re, hS_im, dhS_dr_re, dhS_dr_im,
+                     dhS_dth_re, dhS_dth_im, dhS_dph_re, dhS_dph_im, dhS_dt_re,
+                     dhS_dt_im, src_re, src_im);
+    psiTommy(m_mode_number_, a, r[i], theta[i], hS_re, hS_im, hS_tommy_re,
+             hS_tommy_im);
+    SeffTommy(m_mode_number_, a, r[i], theta[i], src_re, src_im, src_tommy_re,
+              src_tommy_im);
+    for (size_t a1 = 0; a1 < 4; ++a1) {
+      for (size_t b = 0; b <= a1; ++b) {
+        const size_t comp = tnsr::aa<ComplexDataVector, 3>::get_storage_index(
+            std::array<size_t, 2>{{a1, b}});
+        effective_source.get(a1, b)[i] =
+            -src_tommy_re[comp] -
+            std::complex<double>(0., 1.) * src_tommy_im[comp];
+        singular_field.get(a1, b)[i] =
+            hS_tommy_re[comp] +
+            std::complex<double>(0., 1.) * hS_tommy_im[comp];
+        deriv_singular_field.get(0, a1, b)[i] =
+            dhS_dt_re[comp] + std::complex<double>(0., 1.) * dhS_dt_im[comp];
+        deriv_singular_field.get(1, a1, b)[i] =
+            dhS_dr_re[comp] + std::complex<double>(0., 1.) * dhS_dr_im[comp];
+        deriv_singular_field.get(2, a1, b)[i] =
+            dhS_dth_re[comp] + std::complex<double>(0., 1.) * dhS_dth_im[comp];
+        deriv_singular_field.get(3, a1, b)[i] =
+            dhS_dph_re[comp] + std::complex<double>(0., 1.) * dhS_dph_im[comp];
+      }
+    }
   }
-  // Rotate the source by delta_phi and multiply by r / 2 pi
-  for (size_t i = 0; i < effective_source.size(); i++) {
-    effective_source[i] *= rotation * 0.5 * r / M_PI;
-    // Factor Delta * (r^2 + a^2 cos^2(theta)) / Sigma^2
-    // Factor Sigma^2 / (r^2 + a^2)^2 from first-order formulation
-    effective_source[i] *=
-        delta * (square(r) + square(a * cos(theta))) / r_sq_plus_a_sq_sq;
-    singular_field[i] *= rotation * 0.5 * r / M_PI;
-  }
-  // get<0>(deriv_singular_field) *= rotation * 0.5 * r / M_PI;
-  // get<0>(deriv_singular_field) +=
-  //     get(singular_field) / r - std::complex<double>(0., a * m_mode_number_)
-  //     / delta * get(singular_field);
-  // get<0>(deriv_singular_field) *= delta / r_sq_plus_a_sq;
-  // get<1>(deriv_singular_field) *= rotation * 0.5 * r / M_PI;
   auto& fixed_source_re = get<::Tags::FixedSource<Tags::MModeRe>>(result);
   auto& fixed_source_im = get<::Tags::FixedSource<Tags::MModeIm>>(result);
   for (size_t i = 0; i < fixed_source_re.size(); i++) {

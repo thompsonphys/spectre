@@ -10,6 +10,7 @@ spectre_target_sources(
   PRIVATE
   ABC.cpp
   CircularOrbit.cpp
+  source_convert.cpp
   )
 
 spectre_target_headers(
@@ -18,6 +19,7 @@ spectre_target_headers(
   HEADERS
   ABC.hpp
   CircularOrbit.hpp
+  source_convert.hpp
   )
 
 target_link_libraries(

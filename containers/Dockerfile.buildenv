@@ -81,7 +81,7 @@ RUN apt-get update -y \
         gcc g++ gfortran \
         clang clang-format clang-tidy lld \
         bison flex libncurses-dev \
-        gdb cmake autoconf automake ninja-build lcov
+        gdb cmake autoconf automake ninja-build lcov pkg-config
 
 # Install SpECTRE dependencies that are available through apt
 #

@@ -74,25 +74,26 @@ class CircularOrbit : public elliptic::analytic_data::Background,
 
   tnsr::I<double, 2> puncture_position() const;
 
+  using background_tags = tmpl::list<Tags::Alpha, Tags::Beta, Tags::Gamma>;
+  using source_tags = tmpl::list<::Tags::FixedSource<Tags::MMode>, Tags::SingularField,
+                       ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>,
+                                     Frame::Inertial>,
+                       Tags::BoyerLindquistRadius>;
+
   // Background
-  tuples::TaggedTuple<Tags::Alpha, Tags::Beta, Tags::Gamma> variables(
+  tuples::tagged_tuple_from_typelist<background_tags> variables(
       const tnsr::I<DataVector, 2>& x,
-      tmpl::list<Tags::Alpha, Tags::Beta, Tags::Gamma> /*meta*/) const;
+      background_tags /*meta*/) const;
 
   // Initial guess
   tuples::TaggedTuple<Tags::MMode> variables(
       const tnsr::I<DataVector, 2>& x, tmpl::list<Tags::MMode> /*meta*/) const;
 
   // Fixed sources
-  tuples::TaggedTuple<
-      ::Tags::FixedSource<Tags::MMode>, Tags::SingularField,
-      ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>,
-      Tags::BoyerLindquistRadius>
+  tuples::tagged_tuple_from_typelist<
+      source_tags>
   variables(const tnsr::I<DataVector, 2>& x,
-            tmpl::list<::Tags::FixedSource<Tags::MMode>, Tags::SingularField,
-                       ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>,
-                                     Frame::Inertial>,
-                       Tags::BoyerLindquistRadius> /*meta*/) const;
+            source_tags /*meta*/) const;
 
   template <typename... RequestedTags>
   tuples::TaggedTuple<RequestedTags...> variables(

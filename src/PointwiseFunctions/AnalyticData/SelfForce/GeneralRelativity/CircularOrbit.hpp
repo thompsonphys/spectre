@@ -15,7 +15,6 @@
 #include "NumericalAlgorithms/LinearOperators/PartialDerivatives.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
 #include "Options/String.hpp"
-#include "PointwiseFunctions/AnalyticData/SelfForce/GeneralRelativity/ABC.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/Background.hpp"
 #include "PointwiseFunctions/InitialDataUtilities/InitialGuess.hpp"
 #include "Utilities/Gsl.hpp"
@@ -71,9 +70,11 @@ class CircularOrbit : public elliptic::analytic_data::Background,
   tnsr::I<double, 3> puncture_position() const;
 
   // Background
-  tuples::TaggedTuple<Tags::Alpha, Tags::Beta, Tags::GammaRstar, Tags::GammaTheta> variables(
-      const tnsr::I<DataVector, 3>& x,
-      tmpl::list<Tags::Alpha, Tags::Beta, Tags::GammaRstar, Tags::GammaTheta> /*meta*/) const;
+  tuples::TaggedTuple<Tags::Alpha, Tags::Beta, Tags::GammaRstar,
+                      Tags::GammaTheta>
+  variables(const tnsr::I<DataVector, 3>& x,
+            tmpl::list<Tags::Alpha, Tags::Beta, Tags::GammaRstar,
+                       Tags::GammaTheta> /*meta*/) const;
 
   // Initial guess
   tuples::TaggedTuple<Tags::MModeRe, Tags::MModeIm> variables(

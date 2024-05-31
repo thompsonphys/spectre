@@ -22,12 +22,12 @@ InitialGuess: *background
 RandomizeInitialGuess: None
 
 DomainCreator:
-  Rectangle:
+  Brick:
     # Order of dimensions is (r_*, theta)
-    LowerBound: [-50., 0.]
-    UpperBound: [{{ R }}, 3.141592653589793]
-    InitialRefinement: [{{ L + 3 }}, {{ L + 1 }}]
-    InitialGridPoints: [20, 20]
+    LowerBound: [-50., 0., 0.]
+    UpperBound: [{{ R }}, 3.141592653589793, 1.]
+    InitialRefinement: [{{ L + 3 }}, {{ L + 1 }}, 0]
+    InitialGridPoints: [20, 20, 1]
     TimeDependence: None
     # Radial boundary conditions
     BoundaryConditionInX:
@@ -51,6 +51,7 @@ DomainCreator:
     BoundaryConditionInY:
       Angular:
         MModeNumber: *m_mode_number
+    BoundaryConditionInZ: Periodic
 
 Discretization:
   DiscontinuousGalerkin:
@@ -83,7 +84,7 @@ LinearSolver:
     Verbosity: Quiet
 
   Multigrid:
-    Iterations: 1
+    Iterations: 0
     MaxLevels: Auto
     PreSmoothing: True
     PostSmoothingAtBottom: False
@@ -111,9 +112,6 @@ EventsAndTriggers:
             - MModeIm
             - FixedSource(MModeRe)
             - FixedSource(MModeIm)
-            - Alpha
-            - Beta
-            - Gamma
             - SingularField
             - BoyerLindquistRadius
           InterpolateToMesh: None
