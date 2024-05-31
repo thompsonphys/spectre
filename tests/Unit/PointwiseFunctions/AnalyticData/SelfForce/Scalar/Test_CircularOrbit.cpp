@@ -26,14 +26,14 @@ namespace ScalarSelfForce::AnalyticData {
 SPECTRE_TEST_CASE("Unit.PointwiseFunctions.ScalarSelfForce.CircularOrbit",
                   "[PointwiseFunctions][Unit]") {
   // Set up a rectangular grid
-  const double theta_offset = M_PI / 10.;
-  const double delta_theta = M_PI / 20.;
+  const double theta_offset = M_PI / 8.;
+  const double delta_theta = M_PI / 40.;
   const double rstar_offset = 0.;
   const double delta_rstar = 5.;
   const size_t npoints = 20;
   const domain::creators::Rectangle domain_creator{
-      {{rstar_offset, M_PI_2 + theta_offset}},
-      {{rstar_offset + delta_rstar, M_PI_2 + theta_offset + delta_theta}},
+      {{rstar_offset, M_PI / 3. /*M_PI_2 + theta_offset*/}},
+      {{rstar_offset + delta_rstar, 2. * M_PI / 3. /*M_PI_2 + theta_offset + delta_theta*/}},
       {{0, 0}},
       {{npoints, npoints}},
       {{false, false}}};
