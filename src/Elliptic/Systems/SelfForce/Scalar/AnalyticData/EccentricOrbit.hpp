@@ -103,10 +103,17 @@ class EccentricOrbit : public SelfForceBackground,
       "which is used to calculate the n-modes of the fixed sources";
     using type = size_t;
   };
+  struct PhiPoints {
+      static constexpr Options::String help = 
+          "Specify the number of points used for the phi resolution in the "
+          "numerical m-mode calculation of the effective soure, puncture and "
+          "its derivatives.";
+      using type = size_t;
+  };
   using options =
       tmpl::list<BlackHoleMass, BlackHoleSpin, SemiLatusRectum, Eccentricity,
         MModeNumber, NModeNumber, HyperboloidalSlicingTransitions,
-        PenetratingHorizon, ImposeEquatorialSymmetry, TimePoints>;
+        PenetratingHorizon, ImposeEquatorialSymmetry, TimePoints, PhiPoints>;
   static constexpr Options::String help =
       "Quasicircular orbit of a scalar point charge in Kerr spacetime";
 
@@ -129,7 +136,8 @@ class EccentricOrbit : public SelfForceBackground,
       std::optional<std::array<double, 4>> hyperboloidal_slicing_transitions,
       bool penetrating_horizon, 
       bool impose_equatorial_symmetry, 
-      size_t time_points);
+      size_t time_points,
+      size_t phi_points);
 
   explicit EccentricOrbit(CkMigrateMessage* m);
   using PUP::able::register_constructor;
@@ -146,6 +154,7 @@ class EccentricOrbit : public SelfForceBackground,
   int m_mode_number() const override { return m_mode_number_; }
   int n_mode_number() const override { return n_mode_number_ ; }
   size_t time_points() const { return time_points_; }
+  size_t phi_points() const { return phi_points_; }
   std::optional<std::array<double, 4>> hyperboloidal_slicing_transitions()
       const {
     return hyperboloidal_slicing_transitions_;
@@ -209,11 +218,12 @@ class EccentricOrbit : public SelfForceBackground,
  private:
   friend bool operator==(const EccentricOrbit& lhs, const EccentricOrbit& rhs);
 
-  void build_fftw_plan();
+  void build_fftw_plan(size_t n_phi);
   struct FftwPlanDeleter {
   void operator()(fftw_plan p) const { fftw_destroy_plan(p); }
   };
-  std::unique_ptr<std::remove_pointer_t<fftw_plan>, FftwPlanDeleter> fft_plan_;
+  std::unique_ptr<std::remove_pointer_t<fftw_plan>, FftwPlanDeleter> fft_plan_t;
+  std::unique_ptr<std::remove_pointer_t<fftw_plan>, FftwPlanDeleter> fft_plan_phi;
 
   double black_hole_mass_{std::numeric_limits<double>::signaling_NaN()};
   double black_hole_spin_{std::numeric_limits<double>::signaling_NaN()};
@@ -226,6 +236,7 @@ class EccentricOrbit : public SelfForceBackground,
   bool penetrating_horizon_{false};
   bool impose_equatorial_symmetry_{false};
   size_t time_points_{};
+  size_t phi_points_{};
   };
 
 bool operator!=(const EccentricOrbit& lhs, const EccentricOrbit& rhs);

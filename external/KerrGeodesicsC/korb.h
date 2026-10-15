@@ -150,7 +150,7 @@ extern double korb_Tr(double psi, korb_params orbpar);
 /*! 
 * Find T_th, which is the polar part of the derivative of t with respect to Mino time  (Eq. 2.20)
 */
-//extern double korb_Tth(double chi, korb_params orbpar);
+extern double korb_Tth(double chi, korb_params orbpar);
 
 /*! 
 * This function provides the integrand for calculating Mino time Fourier coefficients of T_th

@@ -7,6 +7,8 @@
 #include <blaze/math/Vector.h>
 #include <boost/iterator/is_iterator.hpp>
 #include <complex.h>
+#include <limits>
+#include <memory>
 extern "C" {
 #include <effsource_equatorial.h>
 }
@@ -53,6 +55,31 @@ extern "C" {
 #include "Utilities/Serialization/PupStlCpp17.hpp"
 #include "Utilities/System/ParallelInfo.hpp"
 
+
+namespace {
+  // Instantaneous time Jacobian dt/dlambda at Mino time lambda. 
+  double dtdlambda(double lambda, const korb_params& o)
+  {
+      return korb_Tr(korb_psifromla(lambda, o), o)
+         + korb_Tth(korb_chifromla(lambda, o), o);
+  }
+
+  // Newton iteration for lambda such that t(lambda) = t.
+  // Sets stalled = true if it fails to converge in 20 iterations.
+  double lambda_from_t(double t, double lambda, korb_params &orbpar, bool &stalled)
+  {
+      for (int it = 0; it < 20; it++) {
+          double dl = (korb_tfromla(lambda, orbpar) - t) / dtdlambda(lambda, orbpar);
+          lambda -= dl;
+          if (std::abs(dl) <= 4.0 * std::numeric_limits<double>::epsilon()* fabs(lambda)){
+            return lambda; 
+          }
+      }
+      stalled = true;
+      return lambda;
+  }
+} // namespace
+
 namespace ScalarSelfForce::AnalyticData {
 
 namespace {
@@ -78,7 +105,8 @@ EccentricOrbit::EccentricOrbit(const double black_hole_mass,
                                    hyperboloidal_slicing_transitions,
                                const bool penetrating_horizon,
                                const bool impose_equatorial_symmetry,
-                               const size_t time_points)
+                               const size_t time_points, 
+                               const size_t phi_points)
     : black_hole_mass_(black_hole_mass),
       black_hole_spin_(black_hole_spin),
       semi_latus_rectum_(semi_latus_rectum),
@@ -88,7 +116,8 @@ EccentricOrbit::EccentricOrbit(const double black_hole_mass,
       hyperboloidal_slicing_transitions_(hyperboloidal_slicing_transitions),
       penetrating_horizon_(penetrating_horizon),
       impose_equatorial_symmetry_(impose_equatorial_symmetry),
-      time_points_(time_points) {
+      time_points_(time_points),
+      phi_points_(phi_points) {
   if (penetrating_horizon_ and
       not hyperboloidal_slicing_transitions_.has_value()) {
     ERROR(
@@ -96,7 +125,7 @@ EccentricOrbit::EccentricOrbit(const double black_hole_mass,
         "true.");
   }
   compute_trajectory(time_points_);
-  build_fftw_plan();
+  build_fftw_plan(phi_points_);
 }
 
 EccentricOrbit::EccentricOrbit(CkMigrateMessage* m)
@@ -115,15 +144,27 @@ tnsr::I<double, 2> EccentricOrbit::puncture_position() const {
   }
 }
 
-void EccentricOrbit::build_fftw_plan() {
-  fftw_complex* dummy_in = static_cast<fftw_complex*>(
+void EccentricOrbit::build_fftw_plan(size_t n_phi) {
+
+  fftw_complex* in_t = static_cast<fftw_complex*>(
       fftw_malloc(sizeof(fftw_complex) * time_points_));
-  fftw_complex* dummy_out = static_cast<fftw_complex*>(
+  fftw_complex* out_t = static_cast<fftw_complex*>(
       fftw_malloc(sizeof(fftw_complex) * time_points_));
-  fft_plan_.reset(fftw_plan_dft_1d(static_cast<int>(time_points_), dummy_in,
-                                  dummy_out, FFTW_BACKWARD, FFTW_MEASURE));
-  fftw_free(dummy_in);
-  fftw_free(dummy_out);
+  fft_plan_t.reset(fftw_plan_dft_1d(static_cast<int>(time_points_), in_t,
+                                  out_t, FFTW_BACKWARD, FFTW_MEASURE));
+  //Use a real fft to calculate the m-mode projections 
+  size_t h = n_phi/2 + 1;
+  double* in_phi = static_cast<double*>(
+      fftw_malloc(sizeof(double) * n_phi));
+  fftw_complex* out_phi = static_cast<fftw_complex*>(
+      fftw_malloc(sizeof(fftw_complex) * h));
+  fft_plan_phi.reset(fftw_plan_dft_r2c_1d(static_cast<int>(n_phi), in_phi,
+        out_phi, FFTW_MEASURE));
+
+  fftw_free(in_t);
+  fftw_free(out_t);
+  fftw_free(in_phi);
+  fftw_free(out_phi);
 }
 
 // Function to compute n-modes of a Scalar<ComplexDataVector> time series
@@ -152,7 +193,7 @@ ComplexDataVector EccentricOrbit::compute_n_mode(
       in[j][1] = get(shifted_time_series[j])[i].imag();
     }
     // Execute the member plan for thread-safety
-    fftw_execute_dft(fft_plan_.get(), in, out);
+    fftw_execute_dft(fft_plan_t.get(), in, out);
 
     //Normalize the output 
     for(size_t k = 0; k < time_points(); k++)
@@ -205,8 +246,8 @@ tnsr::i<ComplexDataVector, 2> EccentricOrbit::compute_n_mode(
       in_th[j][0] = get<1>(shifted_time_series[j])[i].real();
       in_th[j][1] = get<1>(shifted_time_series[j])[i].imag();
     }
-    fftw_execute_dft(fft_plan_.get(), in_r, out_r);
-    fftw_execute_dft(fft_plan_.get(), in_th, out_th);
+    fftw_execute_dft(fft_plan_t.get(), in_r, out_r);
+    fftw_execute_dft(fft_plan_t.get(), in_th, out_th);
 
     //Normalize the output 
     for(size_t k = 0; k < time_points(); k++)
@@ -251,39 +292,28 @@ void EccentricOrbit::compute_trajectory(size_t time_points) {
   t_values.resize(time_points);
   u_r.resize(time_points);
   source_coefficients.resize(time_points);
-  double lambda_max = 2 * M_PI / (orbpar.Ga * orbpar.wr);
-  double delta_lambda = lambda_max / (time_points - 1);
-  double Tr = 2 * M_PI / (orbpar.wr); 
-  std::vector<double> t_of_lambda(time_points + 1);
-  std::vector<double> lambda_values(time_points + 1);
-  double current_lambda = 0;
 
-  for (size_t j = 0; j <= time_points; j++) {
-    t_of_lambda[j] = korb_tfromla(current_lambda, orbpar);
-    lambda_values[j] = current_lambda;
-    current_lambda += delta_lambda;
-  }
-
-  intrp::CubicSpline lambda_of_t{t_of_lambda, lambda_values};
-
-  std::vector<double> chi_of_t(time_points + 1);
-  for (size_t j = 0; j < time_points; j++) {
-    double t = static_cast<double>(j) / time_points * Tr;
-    r_of_t[j] =
-        korb_rfrompsi(korb_psifromla(lambda_of_t(t), orbpar), orbpar);
-    phi_of_t[j] = korb_phifromla(lambda_of_t(t), orbpar);
-    chi_of_t[j] = korb_psifromla(lambda_of_t(t), orbpar);
-    t_values[j] = t;
-  }
+  // Only half of the period radial period is required because fields are periodic
+  double T_max = 2*M_PI / (orbpar.wr);
 
   // Compute the radial four velocity at each time
   double X_four_velocity = orbpar.Lz - (black_hole_spin_ * orbpar.E);
-  for (size_t i = 0; i < u_r.size(); i++) {
-    u_r[i] = (eccentricity_ * gsl_sf_sin(chi_of_t[i]) / semi_latus_rectum_) *
+  double lambda = 0;
+  for (size_t i = 0; i < time_points_; i++) {
+    double t = static_cast<double>(i) / time_points_ * T_max;
+    t_values[i] = t;
+    bool stalled=false;
+    lambda = lambda_from_t(
+        t, lambda + (T_max/time_points_)/(dtdlambda(lambda, orbpar)), 
+        orbpar, stalled);
+    phi_of_t[i] = korb_phifromla(lambda, orbpar);
+    double psi_of_t = korb_psifromla(lambda, orbpar);
+    r_of_t[i] = korb_rfrompsi(psi_of_t, orbpar);
+    u_r[i] = (eccentricity_ * gsl_sf_sin(psi_of_t) / semi_latus_rectum_) *
              sqrt(square(X_four_velocity) + square(black_hole_spin_) +
                   (2 * X_four_velocity * black_hole_spin_ * orbpar.E) -
                   (2 * square(X_four_velocity) *
-                   (3 + eccentricity_ * gsl_sf_cos(chi_of_t[i])) /
+                   (3 + eccentricity_ * gsl_sf_cos(psi_of_t)) /
                    semi_latus_rectum_));
   }
 
@@ -295,7 +325,7 @@ void EccentricOrbit::compute_trajectory(size_t time_points) {
     xp.t = t_values[i];
     xp.r = r_of_t[i];
     xp.theta = M_PI_2;
-    xp.phi = phi_of_t[i];
+    xp.phi = 0; //we set xp.phi to zero here for the fft and rescale after phi_of_t[i];
     struct effsource_equatorial_ctx * ctx = effsource_equatorial_create(black_hole_mass_, black_hole_spin_);
     effsource_equatorial_ctx_set_particle(ctx, &xp, energy, angular_momentum, u_r[i]);
     source_coefficients[i] = ctx;
@@ -516,7 +546,6 @@ EccentricOrbit::variables(
   singular_field_evolution.resize(time_points());
   std::vector<tnsr::i<ComplexDataVector, 2>> deriv_singular_field_evolution;
   deriv_singular_field_evolution.resize(time_points());
-  deriv_singular_field_evolution.resize(time_points());
   std::vector<Scalar<ComplexDataVector>> raw_source_evolution;
   raw_source_evolution.resize(time_points());
 
@@ -538,36 +567,91 @@ EccentricOrbit::variables(
   {
     // Call into effsource
     coordinate x_i{};
-    std::array<double, 2> PhiS{};
+    /* std::array<double, 2> PhiS{};
     std::array<double, 8> dPhiS_dx{};
     std::array<double, 20> d2PhiS_dx2{};
-    std::array<double, 2> src{};
+    std::array<double, 2> src{}; */
+    double PhiS;
+    std::array<double, 4> dPhiS{};
+    std::array<double, 10> d2PhiS{};
+    double src;
+
+    // Declare the input and output arrays for the m-mode FFT
+    double * in_PhiS = static_cast<double*>(fftw_malloc(sizeof(double) * phi_points_));
+    double * in_dPhiS_dr = static_cast<double*>(fftw_malloc(sizeof(double) * phi_points_));
+    double * in_dPhiS_dtheta = static_cast<double*>(fftw_malloc(sizeof(double) * phi_points_));
+    double * in_src = static_cast<double*>(fftw_malloc(sizeof(double) * phi_points_));
+
+    size_t h = phi_points_ / 2 + 1;
+    fftw_complex *out_PhiS = static_cast<fftw_complex*>(fftw_malloc(sizeof(fftw_complex) * h));
+    fftw_complex *out_dPhi_dr = static_cast<fftw_complex*>(fftw_malloc(sizeof(fftw_complex) * h));
+    fftw_complex *out_dPhi_dtheta = static_cast<fftw_complex*>(fftw_malloc(sizeof(fftw_complex) * h));
+    fftw_complex *out_src = static_cast<fftw_complex*>(fftw_malloc(sizeof(fftw_complex) * h));
+
     for (size_t i = 0; i < time_points(); i++) {
       for (size_t j = 0; j < num_points; j++) {
-        x_i.t = t_values[j];
+        x_i.t = t_values[i];
         x_i.r = r[j];
         x_i.theta = acos(cos_theta[j]);
-        x_i.phi = 0;
-        effsource_equatorial_ctx_calc_m(source_coefficients[i], m_mode_number_, &x_i, PhiS.data(), dPhiS_dx.data(),
-            d2PhiS_dx2.data(), src.data());
+
+        // Populate the input arrays for the m-mode FFT
+        for (size_t k = 0; k < phi_points_; k++) {
+          x_i.phi = 2.0 * M_PI * (double)k / (double)phi_points_;
+          effsource_equatorial_ctx_calc(source_coefficients[i], &x_i, &PhiS, dPhiS.data(), d2PhiS.data(), &src);
+          if(on_worldtube_boundary){
+            in_PhiS[k] = PhiS;
+            in_dPhiS_dr[k] = dPhiS[1];
+            in_dPhiS_dtheta[k] = dPhiS[2];
+          }
+          in_src[k] = src;
+        }
+        if(on_worldtube_boundary){
+          fftw_execute_dft_r2c(fft_plan_phi.get(), in_PhiS, out_PhiS);
+          fftw_execute_dft_r2c(fft_plan_phi.get(), in_dPhiS_dr, out_dPhi_dr);
+          fftw_execute_dft_r2c(fft_plan_phi.get(), in_dPhiS_dtheta, out_dPhi_dtheta);
+        }
+        fftw_execute_dft_r2c(fft_plan_phi.get(), in_src, out_src);
+
+        // Rescale and rotate to account for setting phi_p = 0
+        double w = 2.0 * M_PI / (double)phi_points_;
+        double cm = cos(m_mode_number_ * phi_of_t[i]); 
+        double sm = sin(m_mode_number_ * phi_of_t[i]);
+
+        if(on_worldtube_boundary){
+          double re_PhiS = out_PhiS[m_mode_number_][0], im_PhiS = out_PhiS[m_mode_number_][1];
+          double re_dPhiS_dr= out_dPhi_dr[m_mode_number_][0], im_dPhiS_dr = out_dPhi_dr[m_mode_number_][1];
+          double re_dPhiS_dtheta = out_dPhi_dtheta[m_mode_number_][0], im_dPhiS_dtheta = out_dPhi_dtheta[m_mode_number_][1];
+          out_PhiS[m_mode_number_][0] = w * (re_PhiS* cm + im_PhiS * sm);
+          out_PhiS[m_mode_number_][1] = w * (im_PhiS* cm - re_PhiS * sm);
+          out_dPhi_dr[m_mode_number_][0] = w * (re_dPhiS_dr* cm + im_dPhiS_dr * sm);
+          out_dPhi_dr[m_mode_number_][1] = w * (im_dPhiS_dr* cm - re_dPhiS_dr * sm);
+          out_dPhi_dtheta[m_mode_number_][0] = w * (re_dPhiS_dtheta* cm + im_dPhiS_dtheta * sm);
+          out_dPhi_dtheta[m_mode_number_][1] = w * (im_dPhiS_dtheta* cm - re_dPhiS_dtheta * sm);
+          get(snapshot_singular_field)[j] =
+              out_PhiS[m_mode_number_][0] + std::complex<double>(0., 1.) * out_PhiS[m_mode_number_][1];
+          get<0>(snapshot_deriv_singular_field)[j] =
+              out_dPhi_dr[m_mode_number_][0] + std::complex<double>(0., 1.) * out_dPhi_dr[m_mode_number_][1];
+          get<1>(snapshot_deriv_singular_field)[j] =
+              out_dPhi_dtheta[m_mode_number_][0] + std::complex<double>(0., 1.) * out_dPhi_dtheta[m_mode_number_][1];
+        }
+
+        double re_src = out_src[m_mode_number_][0], im_src= out_src[m_mode_number_][1];
+        out_src[m_mode_number_][0] = w * (re_src* cm + im_src* sm);
+        out_src[m_mode_number_][1] = w * (im_src* cm - re_src* sm);
         get(snapshot_effective_source)[j] =
-            src[0] + std::complex<double>(0., 1.) * src[1];
-        get(snapshot_singular_field)[j] =
-            PhiS[0] + std::complex<double>(0., 1.) * PhiS[1];
-        get<0>(snapshot_deriv_singular_field)[j] =
-            dPhiS_dx[2] + std::complex<double>(0., 1.) * dPhiS_dx[3];
-        get<1>(snapshot_deriv_singular_field)[j] =
-            dPhiS_dx[4] + std::complex<double>(0., 1.) * dPhiS_dx[5];
+            out_src[m_mode_number_][0] + std::complex<double>(0., 1.) * out_src[m_mode_number_][1];
       }
 
       // Rotate the source by delta_phi and multiply by r / 2 pi
       get(effective_source_evolution[i]) = get(snapshot_effective_source);
       get(raw_source_evolution[i]) = get(snapshot_effective_source);
+
       get(singular_field_evolution[i]) = get(snapshot_singular_field);
       get<0>(deriv_singular_field_evolution[i]) =
           get<0>(snapshot_deriv_singular_field);
       get<1>(deriv_singular_field_evolution[i]) =
           get<1>(snapshot_deriv_singular_field);
+
       get(effective_source_evolution[i]) *= rotation * 0.5 * r / M_PI;
       // Factor Delta * (r^2 + a^2 cos^2(theta)) / Sigma^2
       // Factor Sigma^2 / (r^2 + a^2)^2 from first-order formulation
@@ -577,19 +661,23 @@ EccentricOrbit::variables(
       if (not penetrating_horizon_) {
         get(effective_source_evolution[i]) *= delta / r_sq_plus_a_sq;
       }
+
       get(singular_field_evolution[i]) *= rotation * 0.5 * r / M_PI / sin_theta_pow_m;
       get<0>(deriv_singular_field_evolution[i]) *= rotation * 0.5 * r / M_PI / sin_theta_pow_m;
       get<0>(deriv_singular_field_evolution[i]) +=
           get(singular_field_evolution[i]) / r - std::complex<double>(0., a * m_mode_number_) /
             delta * get(singular_field_evolution[i]);
+
       if (not penetrating_horizon_) {
         get<0>(deriv_singular_field_evolution[i]) *= delta / r_sq_plus_a_sq;
       }
+
       get<1>(deriv_singular_field_evolution[i]) *= rotation * 0.5 * r / M_PI / sin_theta_pow_m;
       get<1>(deriv_singular_field_evolution[i]) /= -sin_theta;
       if (impose_equatorial_symmetry_) {
         get<1>(deriv_singular_field_evolution[i]) /= 2. * cos_theta;
       }
+
       {
         ComplexDataVector add_term =
             m_mode_number_ * get(singular_field_evolution[i]) / sin_theta_sq;
@@ -601,6 +689,14 @@ EccentricOrbit::variables(
         get<1>(deriv_singular_field_evolution[i]) += add_term;
       }
     }
+    fftw_free(in_PhiS);
+    fftw_free(in_dPhiS_dr);
+    fftw_free(in_dPhiS_dtheta);
+    fftw_free(in_src);
+    fftw_free(out_PhiS);
+    fftw_free(out_dPhi_dr);
+    fftw_free(out_dPhi_dtheta);
+    fftw_free(out_src);
   }
 
   // only compute the n_modes of the singular field and its derivatives when 
@@ -631,6 +727,7 @@ void EccentricOrbit::pup(PUP::er& p) {
   p | penetrating_horizon_;
   p | impose_equatorial_symmetry_;
   p | time_points_;
+  p | phi_points_;
   p | t_values;
   p | r_of_t;
   p | phi_of_t;
@@ -641,7 +738,7 @@ void EccentricOrbit::pup(PUP::er& p) {
   p | angular_momentum;
 
   if (p.isUnpacking()) {
-    build_fftw_plan();
+    build_fftw_plan(phi_points_);
     source_coefficients.resize(time_points());
     for(size_t i=0; i<time_points(); i++)
     {
@@ -649,7 +746,7 @@ void EccentricOrbit::pup(PUP::er& p) {
       xp.t = t_values[i];
       xp.r = r_of_t[i];
       xp.theta = M_PI_2;
-      xp.phi = phi_of_t[i];
+      xp.phi = 0; //we set xp.phi to zero here for the fft and rescale after phi_of_t[i];
       struct effsource_equatorial_ctx * ctx = effsource_equatorial_create(black_hole_mass_, black_hole_spin_);
       effsource_equatorial_ctx_set_particle(ctx, &xp, energy, angular_momentum, u_r[i]);
       source_coefficients[i] = ctx;
@@ -668,7 +765,8 @@ bool operator==(const EccentricOrbit& lhs, const EccentricOrbit& rhs) {
              rhs.hyperboloidal_slicing_transitions_ and
          lhs.penetrating_horizon_ == rhs.penetrating_horizon_ and
          lhs.impose_equatorial_symmetry_ == rhs.impose_equatorial_symmetry_ and
-         lhs.time_points_ == rhs.time_points_;
+         lhs.time_points_ == rhs.time_points_ and 
+         lhs.phi_points_ == rhs.phi_points_;
          }
 
 bool operator!=(const EccentricOrbit& lhs, const EccentricOrbit& rhs) {
