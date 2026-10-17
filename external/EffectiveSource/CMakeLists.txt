@@ -6,6 +6,7 @@ add_library(${LIBRARY}
   kerr-equatorial-coeffs-ctx.c 
   kerr-equatorial-dtcoeffs-ctx.c 
   kerr-equatorial-dttcoeffs-ctx.c
+  kerr-equatorial-mmode.c
   kerr-equatorial-numerical.c
   kerr-equatorial-point-ctx.c
 )
@@ -16,15 +17,16 @@ target_link_libraries(
   GSL::gsl
   )
 
-# The numerical m-mode projection evaluates the coefficients of the field point
-# at every (grid point, time) sample and sums them over the azimuthal samples,
-# and the singular field on the worldtube boundary and the reference in the
-# unit test evaluate it at many azimuths, so these files dominate the run time
-# even in Debug builds. They compile quickly with optimizations.
+# The m-modes evaluate the coefficients of the field point and the analytic
+# contraction or numerical azimuthal sum at every (grid point, time) sample,
+# and the numerical reference in the unit test evaluates the effective source
+# at many azimuths, so these files dominate the run time even in Debug builds.
+# They compile quickly with optimizations.
 # The coefficient files need a lot of memory to optimize and only run once per
 # time sample, so they keep the default flags.
 set_source_files_properties(
   kerr-equatorial-ctx.c
+  kerr-equatorial-mmode.c
   kerr-equatorial-numerical.c
   kerr-equatorial-point-ctx.c
   PROPERTIES COMPILE_OPTIONS "$<$<CONFIG:Debug>:-O2>"

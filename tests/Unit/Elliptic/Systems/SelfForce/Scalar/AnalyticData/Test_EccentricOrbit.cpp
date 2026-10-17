@@ -4,9 +4,11 @@
 #include "Framework/TestingFramework.hpp"
 
 #include <array>
+#include <cmath>
 #include <complex>
 #include <cstddef>
-#include <optional>
+#include <effsource_equatorial.hpp>
+#include <utility>
 
 #include "DataStructures/ComplexDataVector.hpp"
 #include "DataStructures/DataVector.hpp"
@@ -29,122 +31,133 @@
 namespace ScalarSelfForce::AnalyticData {
 
 namespace {
-void test_phi_points_rule() {
-  using EccentricOrbit_detail::phi_points_for_sample;
-  // Far from the particle the floor of 64 samples applies
-  CHECK(phi_points_for_sample(1., 2) == 64);
-  // max(m, 20) + 46 / log(rho), rounded up to a power of two
-  CHECK(phi_points_for_sample(1.e-2, 2) == 256);
-  CHECK(phi_points_for_sample(1.e-6, 2) == 32768);
-  CHECK(phi_points_for_sample(1.e-6, -2) == 32768);
-  // High modes: m + 46 / log(rho) = 88 and 5 m / 2 = 100
-  CHECK(phi_points_for_sample(0.25, 40) == 128);
-  CHECK(phi_points_for_sample(0.25, -40) == 128);
-  CHECK_THROWS_WITH(phi_points_for_sample(0., 2),
-                    Catch::Matchers::ContainsSubstring("is not positive"));
-  CHECK_THROWS_WITH(phi_points_for_sample(-1., 2),
-                    Catch::Matchers::ContainsSubstring("is not positive"));
-  CHECK_THROWS_WITH(phi_points_for_sample(1.e-12, 2),
-                    Catch::Matchers::ContainsSubstring("The limit is 4194304"));
+// The m-modes of the effective source and of the singular field and its
+// derivatives by a trapezoidal sum over phi, the integrals of their absolute
+// values over phi, which bound the rounding error of the sum, and the m-mode of
+// the effective source of `effsource_equatorial_ctx_calc`. Near the particle
+// the effective source of `effsource_equatorial_ctx_calc` loses digits to
+// cancellation (about 1e-10 relative at C1 ~ 1e-4), so the reference for the
+// effective source is `effsource_equatorial_ctx_point_src` with the
+// double-double coefficients of `effsource_equatorial_ctx_prepare_dd`.
+struct NumericalMModes {
+  std::array<std::complex<double>, 4> modes{};
+  std::array<double, 4> abs_integrals{};
+  std::complex<double> calc_effective_source{};
+};
+
+NumericalMModes numerical_m_modes(effsource_equatorial_ctx* ctx, const double r,
+                                  const double theta, const int m_mode_number,
+                                  const size_t num_phi) {
+  effsource_equatorial_point point{};
+  effsource_equatorial_ctx_prepare_dd(ctx, r, theta, &point);
+  coordinate x{};
+  x.t = ctx->xp.t;
+  x.r = r;
+  x.theta = theta;
+  double singular_field = 0.;
+  std::array<double, 4> deriv_singular_field{};
+  std::array<double, 10> second_deriv_singular_field{};
+  double calc_effective_source = 0.;
+  NumericalMModes result{};
+  const double phi_spacing = 2. * M_PI / static_cast<double>(num_phi);
+  for (size_t k = 0; k < num_phi; ++k) {
+    x.phi = phi_spacing * static_cast<double>(k);
+    effsource_equatorial_ctx_calc(
+        ctx, &x, &singular_field, deriv_singular_field.data(),
+        second_deriv_singular_field.data(), &calc_effective_source);
+    const std::complex<double> phase =
+        std::polar(phi_spacing, -m_mode_number * x.phi);
+    const std::array<double, 4> values{
+        effsource_equatorial_ctx_point_src(ctx, &point, x.phi), singular_field,
+        deriv_singular_field[1], deriv_singular_field[2]};
+    for (size_t field = 0; field < 4; ++field) {
+      gsl::at(result.modes, field) += gsl::at(values, field) * phase;
+      gsl::at(result.abs_integrals, field) +=
+          std::abs(gsl::at(values, field)) * phi_spacing;
+    }
+    result.calc_effective_source += calc_effective_source * phase;
+  }
+  return result;
 }
 
-void test_m_modes() {
+void test_analytic_m_modes() {
+  // Snapshots at periapsis (t = 0) and on the way out (t = T_r / 8) of an orbit
+  // with r_p in [7.1, 16.7]
   const EccentricOrbit orbit{
-      1.,    0.5,   10., 0.4,         2, 2, {{-25., -5., 20., 40.}},
-      false, false, 32,  std::nullopt};
-  const effsource_equatorial_ctx& ctx = *orbit.source_coefficients.at(1);
-  // Offsets (dr, dtheta) of the field point from the particle, with C1 below,
-  // near and above EFFSOURCE_PREPARE_DD_C1
-  const std::array<std::array<double, 2>, 3> offsets{
-      {{{0.3, -0.01}}, {{0.6, -0.03}}, {{2., -0.3}}}};
-  EccentricOrbit_detail::PhiTable phi_table{2};
-  for (const auto& offset : offsets) {
-    const double r = ctx.xp.r + offset[0];
-    const double theta = ctx.xp.theta + offset[1];
-    CAPTURE(r);
-    CAPTURE(theta);
-    const auto modes = EccentricOrbit_detail::m_modes(
-        make_not_null(&phi_table), ctx, r, theta, 2, true, std::nullopt);
-    // The fields are real, so the mode -m is the complex conjugate of mode m
-    const auto negative_modes = EccentricOrbit_detail::m_modes(
-        make_not_null(&phi_table), ctx, r, theta, -2, true, std::nullopt);
-    CHECK(negative_modes.effective_source == std::conj(modes.effective_source));
-    CHECK(negative_modes.singular_field == std::conj(modes.singular_field));
-    CHECK(negative_modes.deriv_r_singular_field ==
-          std::conj(modes.deriv_r_singular_field));
-    CHECK(negative_modes.deriv_theta_singular_field ==
-          std::conj(modes.deriv_theta_singular_field));
-    const auto source_only = EccentricOrbit_detail::m_modes(
-        make_not_null(&phi_table), ctx, r, theta, 2, false, std::nullopt);
-    CHECK(source_only.effective_source == modes.effective_source);
-    CHECK(source_only.singular_field == std::complex<double>{});
-    CHECK(source_only.deriv_r_singular_field == std::complex<double>{});
-    CHECK(source_only.deriv_theta_singular_field == std::complex<double>{});
+      1., 0.5, 10., 0.4, 2, 2, {{-25., -5., 20., 40.}}, false, false, 8};
+  // Offsets (dr, dtheta) of the field point from the particle, from
+  // C1 ~ 1e-4 to C1 ~ 1. The offset (0.6, -0.03) has C1 ~ 2e-3 and 1e-3, just
+  // above EFFSOURCE_PREPARE_DD_C1. The trapezoidal sum with 4096 samples is
+  // converged to roundoff at all of them.
+  const std::array<std::array<double, 2>, 6> offsets{{{{0.3, -0.01}},
+                                                      {{-0.05, -0.02}},
+                                                      {{0., -0.05}},
+                                                      {{0.6, -0.03}},
+                                                      {{2., -0.3}},
+                                                      {{-1.5, -0.8}}}};
+  for (const size_t i : {size_t{0}, size_t{1}}) {
+    effsource_equatorial_ctx* ctx = orbit.source_coefficients.at(i);
+    for (const auto& offset : offsets) {
+      const double r = ctx->xp.r + offset[0];
+      const double theta = ctx->xp.theta + offset[1];
+      for (const int m_mode_number : {0, 2, -2, 7}) {
+        CAPTURE(i);
+        CAPTURE(r);
+        CAPTURE(theta);
+        CAPTURE(m_mode_number);
+        const auto analytic =
+            EccentricOrbit_detail::m_modes(*ctx, r, theta, m_mode_number, true);
+        const auto numerical =
+            numerical_m_modes(ctx, r, theta, m_mode_number, 4096);
+        const std::array<std::complex<double>, 4> analytic_modes{
+            analytic.effective_source, analytic.singular_field,
+            analytic.deriv_r_singular_field,
+            analytic.deriv_theta_singular_field};
+        // For C1 >= EFFSOURCE_PREPARE_DD_C1 = 1e-3,
+        // effsource_equatorial_ctx_prepare uses double precision. The
+        // effective source then has errors of up to about 4e-11 relative to
+        // the integral of its absolute value near C1 = 1e-3.
+        const double dr = r - ctx->xp.r;
+        const double dtheta = theta - ctx->xp.theta;
+        const double c1 =
+            (ctx->alpha20 * dr * dr + ctx->alpha02 * dtheta * dtheta) /
+            ctx->beta;
+        const std::array<double, 4> tolerances{
+            c1 < EFFSOURCE_PREPARE_DD_C1 ? 1.e-12 : 1.e-10, 1.e-13, 1.e-13,
+            1.e-13};
+        for (size_t field = 0; field < 4; ++field) {
+          CAPTURE(field);
+          CAPTURE(gsl::at(analytic_modes, field));
+          CAPTURE(gsl::at(numerical.modes, field));
+          CHECK(std::abs(gsl::at(analytic_modes, field) -
+                         gsl::at(numerical.modes, field)) <
+                gsl::at(tolerances, field) *
+                    gsl::at(numerical.abs_integrals, field));
+        }
+        CAPTURE(numerical.calc_effective_source);
+        CHECK(std::abs(analytic.effective_source -
+                       numerical.calc_effective_source) <
+              1.e-8 * numerical.abs_integrals[0]);
+        const auto source_only = EccentricOrbit_detail::m_modes(
+            *ctx, r, theta, m_mode_number, false);
+        CHECK(source_only.effective_source == analytic.effective_source);
+        CHECK(source_only.singular_field == std::complex<double>{});
+        CHECK(source_only.deriv_r_singular_field == std::complex<double>{});
+        CHECK(source_only.deriv_theta_singular_field == std::complex<double>{});
+      }
+    }
   }
 #ifdef SPECTRE_DEBUG
-  CHECK_THROWS_WITH(EccentricOrbit_detail::m_modes(make_not_null(&phi_table),
-                                                   ctx, 12., 1., 2, false, 100),
-                    Catch::Matchers::ContainsSubstring("power of two"));
-  CHECK_THROWS_WITH((EccentricOrbit{1.,
-                                    0.5,
-                                    10.,
-                                    0.4,
-                                    2,
-                                    2,
-                                    {{-25., -5., 20., 40.}},
-                                    false,
-                                    false,
-                                    32,
-                                    100}),
-                    Catch::Matchers::ContainsSubstring("power of two"));
   CHECK_THROWS_WITH(
-      EccentricOrbit_detail::m_modes(make_not_null(&phi_table), ctx, ctx.xp.r,
-                                     ctx.xp.theta, 2, false, 128),
-      Catch::Matchers::ContainsSubstring("is not positive"));
+      EccentricOrbit_detail::m_modes(*orbit.source_coefficients.at(0),
+                                     orbit.source_coefficients.at(0)->xp.r,
+                                     M_PI_2, 2, false),
+      Catch::Matchers::ContainsSubstring("is on the particle"));
+  CHECK_THROWS_WITH(
+      EccentricOrbit_detail::m_modes(*orbit.source_coefficients.at(0), 12., 1.,
+                                     250, false),
+      Catch::Matchers::ContainsSubstring("only available for |m| <= 249"));
 #endif
-}
-
-double max_relative_difference(const ComplexDataVector& value,
-                               const ComplexDataVector& reference) {
-  return max(abs(value - reference)) / max(abs(reference));
-}
-
-void test_automatic_phi_points() {
-  // Field points close to the sweep of the particle, where the automatic rule
-  // uses many more samples near closest approach than far from it. The fixed
-  // reference grid is converged at these points.
-  const tnsr::I<DataVector, 2> x{{{DataVector{11.5, 13., 11.5, 13.},
-                                   DataVector{1.e-2, 1.e-2, 3.e-2, 3.e-2}}}};
-  const auto source_vars = [&x](const std::optional<size_t> phi_points) {
-    const EccentricOrbit orbit{
-        1.,    0.5,   10., 0.4,       2, 2, {{-25., -5., 20., 40.}},
-        false, false, 32,  phi_points};
-    return orbit.variables(x, true, EccentricOrbit::source_tags{});
-  };
-  const auto automatic = source_vars(std::nullopt);
-  const auto reference = source_vars(8192);
-  using deriv_tag =
-      ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>;
-  const double source_error = max_relative_difference(
-      get(get<::Tags::FixedSource<Tags::MMode>>(automatic)),
-      get(get<::Tags::FixedSource<Tags::MMode>>(reference)));
-  const double singular_field_error =
-      max_relative_difference(get(get<Tags::SingularField>(automatic)),
-                              get(get<Tags::SingularField>(reference)));
-  const double deriv_r_error = max_relative_difference(
-      get<0>(get<deriv_tag>(automatic)), get<0>(get<deriv_tag>(reference)));
-  const double deriv_theta_error = max_relative_difference(
-      get<1>(get<deriv_tag>(automatic)), get<1>(get<deriv_tag>(reference)));
-  CAPTURE(source_error);
-  CAPTURE(singular_field_error);
-  CAPTURE(deriv_r_error);
-  CAPTURE(deriv_theta_error);
-  // The rule targets 1e-8 relative to the largest mode at a point. At these
-  // points the error is at the roundoff level of the pointwise source.
-  CHECK(source_error < 1.e-9);
-  CHECK(singular_field_error < 1.e-9);
-  CHECK(deriv_r_error < 1.e-9);
-  CHECK(deriv_theta_error < 1.e-9);
 }
 
 // Checks the self-force equations and the effective source together: the
@@ -201,7 +214,6 @@ void test_operator_consistency(const bool impose_equatorial_symmetry) {
                                                 {{-25., -5., 20., 40.}},
                                                 false,
                                                 impose_equatorial_symmetry,
-                                                128,
                                                 128};
     const auto background =
         eccentric_orbit.variables(x, EccentricOrbit::background_tags{});
@@ -279,8 +291,8 @@ void test_slicing_covariance(const int n_mode_number, const bool inner) {
   // `window`. The background needs only the orbital frequencies, so a few time
   // points suffice.
   const EccentricOrbit null_slicing{
-      1.,   0.5,   10., 0.2,         2, n_mode_number, {{3., 3., 25., 25.}},
-      true, false, 4,   std::nullopt};
+      1.,   0.5,   10., 0.2, 2, n_mode_number, {{3., 3., 25., 25.}},
+      true, false, 4};
   const EccentricOrbit window{1.,
                               0.5,
                               10.,
@@ -291,8 +303,7 @@ void test_slicing_covariance(const int n_mode_number, const bool inner) {
                                     : std::array<double, 4>{{3., 3., 40., 40.}},
                               true,
                               false,
-                              4,
-                              std::nullopt};
+                              4};
   const double H = inner ? -1. : 1.;
   const double omega =
       2. * window.omega_phi() + n_mode_number * window.omega_r();
@@ -340,9 +351,8 @@ void test_slicing_covariance(const int n_mode_number, const bool inner) {
 
 SPECTRE_TEST_CASE("Unit.PointwiseFunctions.ScalarSelfForce.EccentricOrbit",
                   "[PointwiseFunctions][Unit]") {
-  test_phi_points_rule();
-  test_automatic_phi_points();
-  test_m_modes();
+  test_analytic_m_modes();
+
   test_operator_consistency(false);
   test_operator_consistency(true);
   for (const bool inner : {true, false}) {
@@ -350,4 +360,5 @@ SPECTRE_TEST_CASE("Unit.PointwiseFunctions.ScalarSelfForce.EccentricOrbit",
     test_slicing_covariance(2, inner);
   }
 }
-}  // namespace ScalarSelfForce::AnalyticData
+
+}// namespace ScalarSelfForce::AnalyticData

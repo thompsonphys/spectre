@@ -16,3 +16,10 @@ Summary of modifications:
   `codegen/point_codegen.py` from `kerr-equatorial-ctx.c`.
 - Added the new headers to the C++ compatibility header
   `effsource_equatorial.hpp`.
+- Added the analytic m-modes of the equatorial effective source and singular
+  field: `kerr-equatorial-mmode.c` and `effsource_equatorial_mmode.h`, copied
+  from the `updated_analytic_m` branch of
+  https://github.com/thompsonphys/EffectiveSource (revision
+  4d6f2a334bf33a8b93316b384a011ac78c788e07), and added
+  `effsource_equatorial_mmode.h` to the C++ compatibility header
+  `effsource_equatorial.hpp`.

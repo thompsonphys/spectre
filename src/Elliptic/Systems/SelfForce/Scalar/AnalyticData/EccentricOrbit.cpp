@@ -49,7 +49,6 @@ extern "C" {
 #include "NumericalAlgorithms/Integration/GslQuadAdaptive.hpp"
 #include "NumericalAlgorithms/Interpolation/CubicSpline.hpp"
 #include "PointwiseFunctions/GeneralRelativity/TortoiseCoordinates.hpp"
-#include "Utilities/ErrorHandling/Assert.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/Math.hpp"
 #include "Utilities/Serialization/PupStlCpp17.hpp"
@@ -95,113 +94,62 @@ std::pair<DataVector, DataVector> boost_function_and_deriv(
 }  // namespace
 
 namespace EccentricOrbit_detail {
-size_t phi_points_for_sample(const double c1, const int m_mode_number) {
-  if (not(c1 > 0.)) {
-    ERROR("The separation parameter C1 = "
-          << c1
-          << " is not positive. The field point is at the particle position. "
-             "The m-mode of the effective source is not finite there.");
-  }
-  const size_t phi_points =
-      effsource_equatorial_numerical_num_phi(c1, m_mode_number);
-  if (phi_points == 0) {
-    ERROR("The numerical m-mode projection needs more than "
-          << EFFSOURCE_NUMERICAL_MAX_PHI
-          << " azimuthal samples at the separation C1 = " << c1
-          << ". The limit is " << EFFSOURCE_NUMERICAL_MAX_PHI
-          << " samples. The field point is too close to the particle.");
-  }
-  return phi_points;
-}
-
-PhiTable::PhiTable(const int m_mode_number)
-    : abs_m_mode_number_(std::abs(m_mode_number)) {}
-
-PhiTable::~PhiTable() {
-  if (table_.num_phi > 0) {
-    effsource_equatorial_numerical_table_free(&table_);
-  }
-}
-
-const effsource_equatorial_numerical_table& PhiTable::get(
-    const size_t num_phi) {
-  if (num_phi > table_.num_phi) {
-    if (table_.num_phi > 0) {
-      effsource_equatorial_numerical_table_free(&table_);
-      table_.num_phi = 0;
-    }
-    const int status = effsource_equatorial_numerical_table_init(
-        &table_, abs_m_mode_number_, num_phi);
-    if (status != 0) {
-      table_.num_phi = 0;
-      ERROR("Cannot build the azimuthal table for "
-            << num_phi << " samples (status " << status
-            << "). The number of samples must be a power of two of at least "
-               "4.");
-    }
-  }
-  return table_;
-}
-
-MModes m_modes(const gsl::not_null<PhiTable*> phi_table,
-               const effsource_equatorial_ctx& ctx, const double r,
+MModes m_modes(const effsource_equatorial_ctx& ctx, const double r,
                const double theta, const int m_mode_number,
-               const bool singular_field,
-               const std::optional<size_t> phi_points) {
-  ASSERT(phi_table->abs_m_mode_number() == std::abs(m_mode_number),
-         "The azimuthal table is for |m| = " << phi_table->abs_m_mode_number()
-                                             << ", but m = " << m_mode_number
-                                             << ".");
-  if (phi_points.has_value() and
-      (*phi_points < 4 or (*phi_points & (*phi_points - 1)) != 0)) {
-    ERROR("PhiPoints (" << *phi_points
-                        << ") must be a power of two of at least 4.");
-  }
+               const bool singular_field) {
   effsource_equatorial_point point{};
   effsource_equatorial_ctx_prepare(&ctx, r, theta, &point);
-  const double c1 = effsource_equatorial_point_C1(&ctx, &point);
-  const size_t num_phi = phi_points.has_value()
-                             ? *phi_points
-                             : phi_points_for_sample(c1, m_mode_number);
-  if (not(c1 > 0.)) {
-    ERROR("The separation parameter C1 = "
-          << c1
-          << " is not positive. The field point is at the particle position. "
-             "The m-mode of the effective source is not finite there.");
+  // The real and imaginary parts of the modes 0 to |m|, interleaved. Only the
+  // first 2 (|m| + 1) entries are written.
+  using Modes = std::array<double, 2 * (EFFSOURCE_MMODE_MAX_MU - 6)>;
+  Modes effective_source;
+  Modes singular;
+  Modes deriv_r_singular;
+  Modes deriv_theta_singular;
+  const int abs_m = std::abs(m_mode_number);
+  const int status = effsource_equatorial_ctx_analytic_modes(
+      &ctx, &point, abs_m, effective_source.data(),
+      singular_field ? singular.data() : nullptr,
+      singular_field ? deriv_r_singular.data() : nullptr,
+      singular_field ? deriv_theta_singular.data() : nullptr);
+  if (status == 1) {
+    ERROR("The analytic m-modes are only available for |m| <= "
+          << EFFSOURCE_MMODE_MAX_MU - 7 << ", but m = " << m_mode_number
+          << ".");
   }
-  const effsource_equatorial_numerical_table& table = phi_table->get(num_phi);
-  // The fields are real, so the mode -m is the complex conjugate of mode m
-  const auto mode = [&m_mode_number](const double re, const double im) {
-    const std::complex<double> result{re, im};
+  if (status != 0) {
+    ERROR("The field point (r, theta) = ("
+          << r << ", " << theta << ") is on the particle at (r, theta) = ("
+          << ctx.xp.r << ", " << ctx.xp.theta
+          << "). The m-modes of the effective source are not finite there.");
+  }
+  const size_t index = 2 * static_cast<size_t>(abs_m);
+  const auto mode = [&index, &m_mode_number](const Modes& modes) {
+    const std::complex<double> result{modes[index], modes[index + 1]};
+    // The fields are real, so the mode -m is the complex conjugate of mode m
     return m_mode_number < 0 ? std::conj(result) : result;
   };
   MModes result{};
-  double re = 0.;
-  double im = 0.;
-  effsource_equatorial_ctx_numerical_src_mode(&ctx, &point, &table, num_phi,
-                                              &re, &im);
-  result.effective_source = mode(re, im);
+  result.effective_source = mode(effective_source);
   if (singular_field) {
-    std::array<double, 3> field_re{};
-    std::array<double, 3> field_im{};
-    effsource_equatorial_ctx_numerical_field_modes(
-        &ctx, &point, &table, num_phi, field_re.data(), field_im.data());
-    result.singular_field = mode(field_re[0], field_im[0]);
-    result.deriv_r_singular_field = mode(field_re[1], field_im[1]);
-    result.deriv_theta_singular_field = mode(field_re[2], field_im[2]);
+    result.singular_field = mode(singular);
+    result.deriv_r_singular_field = mode(deriv_r_singular);
+    result.deriv_theta_singular_field = mode(deriv_theta_singular);
   }
   return result;
 }
 }  // namespace EccentricOrbit_detail
 
-EccentricOrbit::EccentricOrbit(
-    const double black_hole_mass, const double black_hole_spin,
-    const double semi_latus_rectum, const double eccentricity,
-    const int m_mode_number, const int n_mode_number,
-    const std::optional<std::array<double, 4>>
-        hyperboloidal_slicing_transitions,
-    const bool penetrating_horizon, const bool impose_equatorial_symmetry,
-    const size_t time_points, const std::optional<size_t> phi_points)
+EccentricOrbit::EccentricOrbit(const double black_hole_mass,
+                               const double black_hole_spin,
+                               const double semi_latus_rectum,
+                               const double eccentricity,
+                               const int m_mode_number, const int n_mode_number,
+                               const std::optional<std::array<double, 4>>
+                                   hyperboloidal_slicing_transitions,
+                               const bool penetrating_horizon,
+                               const bool impose_equatorial_symmetry,
+                               const size_t time_points)
     : black_hole_mass_(black_hole_mass),
       black_hole_spin_(black_hole_spin),
       semi_latus_rectum_(semi_latus_rectum),
@@ -211,25 +159,17 @@ EccentricOrbit::EccentricOrbit(
       hyperboloidal_slicing_transitions_(hyperboloidal_slicing_transitions),
       penetrating_horizon_(penetrating_horizon),
       impose_equatorial_symmetry_(impose_equatorial_symmetry),
-      time_points_(time_points),
-      phi_points_(phi_points) {
+      time_points_(time_points) {
   if (penetrating_horizon_ and
       not hyperboloidal_slicing_transitions_.has_value()) {
     ERROR(
         "Hyperboloidal slicing must be enabled when penetrating_horizon is "
         "true.");
   }
-  if (phi_points_.has_value() and
-      (*phi_points_ < 4 or (*phi_points_ & (*phi_points_ - 1)) != 0)) {
-    ERROR("PhiPoints (" << *phi_points_
-                        << ") must be a power of two of at least 4.");
-  }
-  if (phi_points_.has_value() and
-      *phi_points_ <= 2 * static_cast<size_t>(std::abs(m_mode_number_))) {
-    ERROR("PhiPoints (" << *phi_points_
-                        << ") must be larger than 2 * |MModeNumber| ("
-                        << 2 * std::abs(m_mode_number_)
-                        << "). Fewer samples alias the m-mode.");
+  if (std::abs(m_mode_number_) > EFFSOURCE_MMODE_MAX_MU - 7) {
+    ERROR("MModeNumber (" << m_mode_number_ << ") must satisfy |m| <= "
+                          << EFFSOURCE_MMODE_MAX_MU - 7
+                          << ", the largest mode of the analytic m-modes.");
   }
   compute_trajectory(time_points_);
 }
@@ -527,12 +467,11 @@ EccentricOrbit::variables(
 
   // Project the effective source (and the singular field on the worldtube
   // boundary) onto the m-mode at each time point and onto the n-mode over one
-  // radial period. Both projections are trapezoidal sums (see
-  // EccentricOrbit_detail::m_modes for the m-modes). Each snapshot is
-  // evaluated with the particle at phi_p = 0, so its m-mode is rotated by
-  // exp(-i m phi_p(t_i)) in the n-mode sum. The azimuthal node values are
-  // shared by all field points and snapshots of this call.
-  EccentricOrbit_detail::PhiTable phi_table{m_mode_number_};
+  // radial period. The m-modes are the closed-form integrals over phi (see
+  // EccentricOrbit_detail::m_modes) and the n-mode projection is a
+  // trapezoidal sum in t. Each snapshot is evaluated with the particle at
+  // phi_p = 0, so its m-mode is rotated by exp(-i m phi_p(t_i)) in the n-mode
+  // sum.
   const auto n_mode_weight = [this](const size_t i) {
     return std::polar(1. / static_cast<double>(time_points_),
                       m_mode_number_ * (Omega_phi * t_values[i] - phi_of_t[i]) +
@@ -559,8 +498,7 @@ EccentricOrbit::variables(
     const effsource_equatorial_ctx& ctx = *source_coefficients[i];
     for (size_t j = 0; j < num_points; ++j) {
       const auto modes = EccentricOrbit_detail::m_modes(
-          make_not_null(&phi_table), ctx, r[j], theta[j], m_mode_number_,
-          on_worldtube_boundary, phi_points_);
+          ctx, r[j], theta[j], m_mode_number_, on_worldtube_boundary);
       effective_source_n_mode[j] +=
           weight * modes.effective_source +
           mirror_weight * std::conj(modes.effective_source);
@@ -638,7 +576,6 @@ void EccentricOrbit::pup(PUP::er& p) {
   p | penetrating_horizon_;
   p | impose_equatorial_symmetry_;
   p | time_points_;
-  p | phi_points_;
   p | t_values;
   p | r_of_t;
   p | phi_of_t;
@@ -664,9 +601,8 @@ bool operator==(const EccentricOrbit& lhs, const EccentricOrbit& rhs) {
              rhs.hyperboloidal_slicing_transitions_ and
          lhs.penetrating_horizon_ == rhs.penetrating_horizon_ and
          lhs.impose_equatorial_symmetry_ == rhs.impose_equatorial_symmetry_ and
-         lhs.time_points_ == rhs.time_points_ and
-         lhs.phi_points_ == rhs.phi_points_;
-         }
+         lhs.time_points_ == rhs.time_points_;
+}
 
 bool operator!=(const EccentricOrbit& lhs, const EccentricOrbit& rhs) {
   return not(lhs == rhs);
