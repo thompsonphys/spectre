@@ -22,6 +22,7 @@
 #include "Elliptic/Systems/SelfForce/Scalar/AnalyticData/CircularOrbit.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/AnalyticData/EccentricOrbit.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/AnalyticData/SelfForceBackground.hpp"
+#include "Elliptic/Systems/SelfForce/Scalar/BoundaryConditions/Neumann.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/BoundaryConditions/None.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/BoundaryConditions/Sommerfeld.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/Events/ObserveSelfForce.hpp"
@@ -108,7 +109,8 @@ struct Metavariables {
                               ScalarSelfForce::AnalyticData::EccentricOrbit>>,
         tmpl::pair<elliptic::analytic_data::AnalyticSolution, tmpl::list<>>,
         tmpl::pair<elliptic::BoundaryConditions::BoundaryCondition<volume_dim>,
-                   tmpl::list<ScalarSelfForce::BoundaryConditions::None,
+                   tmpl::list<ScalarSelfForce::BoundaryConditions::Neumann,
+                              ScalarSelfForce::BoundaryConditions::None,
                               ScalarSelfForce::BoundaryConditions::Sommerfeld>>,
         tmpl::pair<
             ::amr::Criterion,

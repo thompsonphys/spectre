@@ -4,8 +4,9 @@
 set(LIBRARY "Test_ScalarSelfForceBoundaryConditions")
 
 set(LIBRARY_SOURCES
-  Test_Sommerfeld.cpp
+  Test_Neumann.cpp
   Test_None.cpp
+  Test_Sommerfeld.cpp
   )
 
 add_test_library(${LIBRARY} "${LIBRARY_SOURCES}")

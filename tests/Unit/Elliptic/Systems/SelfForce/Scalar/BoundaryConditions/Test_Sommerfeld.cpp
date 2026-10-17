@@ -38,8 +38,10 @@ SPECTRE_TEST_CASE("Unit.ScalarSelfForce.BoundaryConditions.Sommerfeld",
       "Sommerfeld:\n"
       "  BlackHoleMass: 1.0\n"
       "  BlackHoleSpin: 0.5\n"
-      "  OrbitalRadius: 10.0\n"
-      "  MModeNumber: 2\n";
+      "  SemiLatusRectum: 10.0\n"
+      "  Eccentricity: 0.0\n"
+      "  MModeNumber: 2\n"
+      "  NModeNumber: 0\n";
   const Direction<2> direction = Direction<2>::lower_xi();
   const size_t num_pts = 5;
 
@@ -60,8 +62,10 @@ SPECTRE_TEST_CASE("Unit.ScalarSelfForce.BoundaryConditions.Sommerfeld",
       INFO("Properties");
       CHECK(boundary_condition.black_hole_mass() == 1.0);
       CHECK(boundary_condition.black_hole_spin() == 0.5);
-      CHECK(boundary_condition.orbital_radius() == 10.0);
+      CHECK(boundary_condition.semi_latus_rectum() == 10.0);
+      CHECK(boundary_condition.eccentricity() == 0.0);
       CHECK(boundary_condition.m_mode_number() == 2);
+      CHECK(boundary_condition.n_mode_number() == 0);
       CHECK(boundary_condition.hyperboloidal_slicing() == false);
       CHECK(boundary_condition.boundary_condition_types() ==
             std::vector<elliptic::BoundaryConditionType>{
