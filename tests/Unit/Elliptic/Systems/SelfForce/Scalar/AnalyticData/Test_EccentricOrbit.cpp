@@ -6,28 +6,96 @@
 #include <array>
 #include <complex>
 #include <cstddef>
-#include <fstream>
+#include <optional>
 
+#include "DataStructures/ComplexDataVector.hpp"
 #include "DataStructures/DataVector.hpp"
+#include "DataStructures/TaggedTuple.hpp"
 #include "DataStructures/Tensor/Tensor.hpp"
 #include "DataStructures/Variables.hpp"
+#include "Domain/BlockLogicalCoordinates.hpp"
 #include "Domain/Creators/Rectilinear.hpp"
 #include "Domain/ElementMap.hpp"
 #include "Domain/Structure/ElementId.hpp"
+#include "Elliptic/Systems/SelfForce/Scalar/AnalyticData/EccentricOrbit.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/Equations.hpp"
 #include "NumericalAlgorithms/LinearOperators/Divergence.tpp"
 #include "NumericalAlgorithms/LinearOperators/PartialDerivatives.hpp"
 #include "NumericalAlgorithms/Spectral/LogicalCoordinates.hpp"
-#include "Elliptic/Systems/SelfForce/Scalar/AnalyticData/EccentricOrbit.hpp"
 #include "PointwiseFunctions/GeneralRelativity/TortoiseCoordinates.hpp"
 #include "Utilities/TMPL.hpp"
-#include "DataStructures/TaggedTuple.hpp"
-#include "Domain/BlockLogicalCoordinates.hpp"
 
 namespace ScalarSelfForce::AnalyticData {
 
+namespace {
+void test_phi_points_rule() {
+  using EccentricOrbit_detail::phi_points_for_sample;
+  // Far from the particle the floor of 64 samples applies
+  CHECK(phi_points_for_sample(1., 2) == 64);
+  // max(m, 20) + 16 / sqrt(C1), rounded up to a power of two
+  CHECK(phi_points_for_sample(1.e-2, 2) == 256);
+  CHECK(phi_points_for_sample(1.e-6, 2) == 16384);
+  CHECK(phi_points_for_sample(1.e-6, -2) == 16384);
+  // High modes: m + 16 / sqrt(C1) = 72 and 5 m / 2 = 100
+  CHECK(phi_points_for_sample(0.25, 40) == 128);
+  CHECK(phi_points_for_sample(0.25, -40) == 128);
+  CHECK_THROWS_WITH(phi_points_for_sample(0., 2),
+                    Catch::Matchers::ContainsSubstring("is not positive"));
+  CHECK_THROWS_WITH(phi_points_for_sample(-1., 2),
+                    Catch::Matchers::ContainsSubstring("is not positive"));
+  CHECK_THROWS_WITH(phi_points_for_sample(1.e-12, 2),
+                    Catch::Matchers::ContainsSubstring("The limit is 4194304"));
+}
+
+double max_relative_difference(const ComplexDataVector& value,
+                               const ComplexDataVector& reference) {
+  return max(abs(value - reference)) / max(abs(reference));
+}
+
+void test_automatic_phi_points() {
+  // Field points close to the sweep of the particle, where the automatic rule
+  // uses many more samples near closest approach than far from it. The fixed
+  // reference grid is converged at these points.
+  const tnsr::I<DataVector, 2> x{{{DataVector{11.5, 13., 11.5, 13.},
+                                   DataVector{1.e-2, 1.e-2, 3.e-2, 3.e-2}}}};
+  const auto source_vars = [&x](const std::optional<size_t> phi_points) {
+    const EccentricOrbit orbit{
+        1.,    0.5,   10., 0.4,       2, 2, {{-25., -5., 20., 40.}},
+        false, false, 32,  phi_points};
+    return orbit.variables(x, true, EccentricOrbit::source_tags{});
+  };
+  const auto automatic = source_vars(std::nullopt);
+  const auto reference = source_vars(8192);
+  using deriv_tag =
+      ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>;
+  const double source_error = max_relative_difference(
+      get(get<::Tags::FixedSource<Tags::MMode>>(automatic)),
+      get(get<::Tags::FixedSource<Tags::MMode>>(reference)));
+  const double singular_field_error =
+      max_relative_difference(get(get<Tags::SingularField>(automatic)),
+                              get(get<Tags::SingularField>(reference)));
+  const double deriv_r_error = max_relative_difference(
+      get<0>(get<deriv_tag>(automatic)), get<0>(get<deriv_tag>(reference)));
+  const double deriv_theta_error = max_relative_difference(
+      get<1>(get<deriv_tag>(automatic)), get<1>(get<deriv_tag>(reference)));
+  CAPTURE(source_error);
+  CAPTURE(singular_field_error);
+  CAPTURE(deriv_r_error);
+  CAPTURE(deriv_theta_error);
+  // The rule targets 1e-8 relative to the largest mode at a point. At these
+  // points the error is at the roundoff level of the pointwise source.
+  CHECK(source_error < 1.e-9);
+  CHECK(singular_field_error < 1.e-9);
+  CHECK(deriv_r_error < 1.e-9);
+  CHECK(deriv_theta_error < 1.e-9);
+}
+}  // namespace
+
 SPECTRE_TEST_CASE("Unit.PointwiseFunctions.ScalarSelfForce.EccentricOrbit",
                   "[PointwiseFunctions][Unit]") {
+  test_phi_points_rule();
+  test_automatic_phi_points();
+
   // This test checks both the self-force equations and the effective source
   // computation in a very robust way: it ensures that the elliptic operator
   // applied to the singular field gives the effective source.
@@ -67,8 +135,8 @@ SPECTRE_TEST_CASE("Unit.PointwiseFunctions.ScalarSelfForce.EccentricOrbit",
 
     CAPTURE(n_mode_number);
     const auto eccentric_orbit = EccentricOrbit{
-        1., 0.5, 10., 0.4, 2, n_mode_number,
-        {{-25., -5., 20., 40.}}, false, false, 4096};
+        1.,    0.5,   10., 0.4, 2, n_mode_number, {{-25., -5., 20., 40.}},
+        false, false, 128, 128};
     const auto background =
         eccentric_orbit.variables(x, EccentricOrbit::background_tags{});
     const auto& alpha = get<Tags::Alpha>(background);
@@ -81,16 +149,6 @@ SPECTRE_TEST_CASE("Unit.PointwiseFunctions.ScalarSelfForce.EccentricOrbit",
         ::Tags::deriv<Tags::SingularField, tmpl::size_t<2>, Frame::Inertial>>(
         vars);
     const auto& effective_source = get<::Tags::FixedSource<Tags::MMode>>(vars);
-    std::ofstream output_source("/home/cillian/debug/spectre_fftw_source/n_mode_source_FFT");
-    output_source << "rstar\tz\tRe_src\tIm_src\n";
-    for(size_t k = 0; k < get<0>(x).size(); k++)
-    {
-        output_source << get<0>(x)[k] << "\t" << get<1>(x)[k] << "\t" 
-            << get(effective_source)[k].real() << "\t" 
-            << get(effective_source)[k].imag() << "\n";
-    }
-    output_source.close();
-
     const auto numeric_deriv_singular_field =
         partial_derivative(singular_field, mesh, inv_jacobian);
     const Approx custom_approx = Approx::custom().epsilon(1.e-10).scale(1.);

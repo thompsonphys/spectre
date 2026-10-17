@@ -20,6 +20,7 @@
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Tags.hpp"
 #include "Elliptic/DiscontinuousGalerkin/Tags.hpp"
+#include "Elliptic/Systems/SelfForce/Scalar/AnalyticData/SelfForceBackground.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/Equations.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/Tags.hpp"
 #include "NumericalAlgorithms/DiscontinuousGalerkin/ApplyMassMatrix.hpp"
@@ -27,9 +28,10 @@
 #include "NumericalAlgorithms/DiscontinuousGalerkin/NormalDotFlux.hpp"
 #include "NumericalAlgorithms/DiscontinuousGalerkin/Tags.hpp"
 #include "Parallel/AlgorithmExecution.hpp"
+#include "ParallelAlgorithms/Actions/Goto.hpp"
 #include "ParallelAlgorithms/Amr/Protocols/Projector.hpp"
+#include "ParallelAlgorithms/Amr/Tags.hpp"
 #include "ParallelAlgorithms/Initialization/MutateAssign.hpp"
-#include "Elliptic/Systems/SelfForce/Scalar/AnalyticData/SelfForceBackground.hpp"
 #include "Utilities/CallWithDynamicType.hpp"
 #include "Utilities/MakeWithValue.hpp"
 #include "Utilities/TMPL.hpp"
@@ -216,6 +218,35 @@ struct InitializeEffectiveSource : tt::ConformsTo<::amr::protocols::Projector> {
               singular_vars_on_mortar)),
           mortar_normal, singular_field_flux_on_mortar);
     }
+  }
+};
+
+/*!
+ * \brief Jump to `::Actions::Label<LabelTag>` on elements that are not on the
+ * finest grid.
+ *
+ * \details When AMR keeps coarse grids, each AMR iteration creates a new finest
+ * grid and keeps the old grids as coarser multigrid levels. The fixed sources
+ * on the coarse grids were computed when they were the finest grid, and only
+ * the finest grid uses them. Place this action before
+ * `InitializeEffectiveSource` (and anything else that modifies the fixed
+ * sources) to compute the effective source only once on each grid.
+ */
+template <typename LabelTag>
+struct SkipToLabelOnCoarseGrids {
+  template <typename DbTagsList, typename... InboxTags, typename Metavariables,
+            size_t Dim, typename ActionList, typename ParallelComponent>
+  static Parallel::iterable_action_return_t apply(
+      db::DataBox<DbTagsList>& box,
+      const tuples::TaggedTuple<InboxTags...>& /*inboxes*/,
+      const Parallel::GlobalCache<Metavariables>& /*cache*/,
+      const ElementId<Dim>& /*array_index*/, const ActionList /*meta*/,
+      const ParallelComponent* const /*meta*/) {
+    if (db::get<::amr::Tags::ChildIds<Dim>>(box).empty()) {
+      return {Parallel::AlgorithmExecution::Continue, std::nullopt};
+    }
+    return {Parallel::AlgorithmExecution::Continue,
+            tmpl::index_of<ActionList, ::Actions::Label<LabelTag>>::value};
   }
 };
 

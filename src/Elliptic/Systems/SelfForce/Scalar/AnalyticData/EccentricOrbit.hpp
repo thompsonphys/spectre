@@ -8,9 +8,7 @@
 extern "C" {
     #include <effsource_equatorial.h>
 }
-#include <fftw3.h>
 #include <limits>
-#include <memory>
 #include <optional>
 #include <pup.h>
 #include <vector>
@@ -37,6 +35,37 @@ extern "C" {
 #include "DataStructures/TaggedTuple.hpp"
 
 namespace ScalarSelfForce::AnalyticData {
+
+namespace EccentricOrbit_detail {
+/*!
+ * \brief Number of azimuthal samples for one time sample of the numerical
+ * m-mode projection.
+ *
+ * \details With the particle at \f$\phi = 0\f$ the trapezoidal sum over the
+ * field azimuth converges like \f$\exp(-(N_\phi - m)\sqrt{2 C_1})\f$, where
+ *
+ * \f{align*}{
+ * C_1 = \frac{\alpha_{20}\,\delta r^2 + \alpha_{02}\,\delta\theta^2}{\beta}
+ * \f}
+ *
+ * measures the separation of the field point from the particle and
+ * \f$\alpha_{20}\f$, \f$\alpha_{02}\f$ and \f$\beta\f$ are the puncture
+ * coefficients of the particle at that time. The function returns the smallest
+ * power of two that is at least
+ * \f$\max(64, \max(m, 20) + 16 / \sqrt{C_1}, 5 m / 2)\f$.
+ *
+ * The constants were measured for \f$m \le 20\f$, \f$|n| \le 20\f$ against
+ * fixed-grid references: with 2048 time points the (m,n)-modes of the source
+ * reach a relative error of \f$10^{-8}\f$ down to the seventh refinement at the
+ * puncture, and 4096 time points are needed at the tenth. The error is relative
+ * to the largest (m,n)-mode at the field point, so a single small mode can have
+ * a larger error relative to its own size.
+ *
+ * It is an error if \f$C_1 \le 0\f$ (the field point is on the particle) or if
+ * the result exceeds \f$2^{22}\f$.
+ */
+size_t phi_points_for_sample(double c1, int m_mode_number);
+}  // namespace EccentricOrbit_detail
 
 class EccentricOrbit : public SelfForceBackground,
                       public elliptic::analytic_data::InitialGuess {
@@ -104,16 +133,20 @@ class EccentricOrbit : public SelfForceBackground,
     using type = size_t;
   };
   struct PhiPoints {
-      static constexpr Options::String help = 
-          "Specify the number of points used for the phi resolution in the "
-          "numerical m-mode calculation of the effective soure, puncture and "
-          "its derivatives.";
-      using type = size_t;
+    static constexpr Options::String help =
+        "Number of azimuthal samples per time sample in the numerical m-mode "
+        "projection of the effective source, the puncture and its "
+        "derivatives. 'Auto' chooses the number for each time sample and "
+        "field point from the separation of the field point and the "
+        "particle (see EccentricOrbit_detail::phi_points_for_sample). A "
+        "number uses that fixed count for every sample.";
+    using type = Options::Auto<size_t>;
   };
   using options =
       tmpl::list<BlackHoleMass, BlackHoleSpin, SemiLatusRectum, Eccentricity,
-        MModeNumber, NModeNumber, HyperboloidalSlicingTransitions,
-        PenetratingHorizon, ImposeEquatorialSymmetry, TimePoints, PhiPoints>;
+                 MModeNumber, NModeNumber, HyperboloidalSlicingTransitions,
+                 PenetratingHorizon, ImposeEquatorialSymmetry, TimePoints,
+                 PhiPoints>;
   static constexpr Options::String help =
       "Quasicircular orbit of a scalar point charge in Kerr spacetime";
 
@@ -134,10 +167,8 @@ class EccentricOrbit : public SelfForceBackground,
       double black_hole_mass, double black_hole_spin, double semi_latus_rectum,
       double eccentricity, int m_mode_number, int n_mode_number,
       std::optional<std::array<double, 4>> hyperboloidal_slicing_transitions,
-      bool penetrating_horizon, 
-      bool impose_equatorial_symmetry, 
-      size_t time_points,
-      size_t phi_points);
+      bool penetrating_horizon, bool impose_equatorial_symmetry,
+      size_t time_points, std::optional<size_t> phi_points);
 
   explicit EccentricOrbit(CkMigrateMessage* m);
   using PUP::able::register_constructor;
@@ -154,7 +185,7 @@ class EccentricOrbit : public SelfForceBackground,
   int m_mode_number() const override { return m_mode_number_; }
   int n_mode_number() const override { return n_mode_number_ ; }
   size_t time_points() const { return time_points_; }
-  size_t phi_points() const { return phi_points_; }
+  std::optional<size_t> phi_points() const { return phi_points_; }
   std::optional<std::array<double, 4>> hyperboloidal_slicing_transitions()
       const {
     return hyperboloidal_slicing_transitions_;
@@ -192,14 +223,6 @@ class EccentricOrbit : public SelfForceBackground,
     return variables(x, tmpl::list<RequestedTags...>{});
   }
 
-  ComplexDataVector compute_n_mode(
-      std::vector<Scalar<ComplexDataVector>>& time_series_data,
-      size_t num_points) const;
-
-  tnsr::i<ComplexDataVector, 2> compute_n_mode(
-      std::vector<tnsr::i<ComplexDataVector, 2>>& time_series_data,
-      size_t num_points) const;
-
   void compute_trajectory(size_t time_points);
 
   // NOLINTNEXTLINE
@@ -213,17 +236,15 @@ class EccentricOrbit : public SelfForceBackground,
   std::vector<double> phi_of_t;
   std::vector<double> t_values;
   std::vector<double> u_r;
+  // Effective source coefficients for the time points in the first half of
+  // the radial period, `t_values[0]` to `t_values[time_points / 2]`. The
+  // second half follows from time-reversal symmetry.
   std::vector<effsource_equatorial_ctx*> source_coefficients;
 
  private:
   friend bool operator==(const EccentricOrbit& lhs, const EccentricOrbit& rhs);
 
-  void build_fftw_plan(size_t n_phi);
-  struct FftwPlanDeleter {
-  void operator()(fftw_plan p) const { fftw_destroy_plan(p); }
-  };
-  std::unique_ptr<std::remove_pointer_t<fftw_plan>, FftwPlanDeleter> fft_plan_t;
-  std::unique_ptr<std::remove_pointer_t<fftw_plan>, FftwPlanDeleter> fft_plan_phi;
+  void create_source_coefficients();
 
   double black_hole_mass_{std::numeric_limits<double>::signaling_NaN()};
   double black_hole_spin_{std::numeric_limits<double>::signaling_NaN()};
@@ -236,7 +257,7 @@ class EccentricOrbit : public SelfForceBackground,
   bool penetrating_horizon_{false};
   bool impose_equatorial_symmetry_{false};
   size_t time_points_{};
-  size_t phi_points_{};
+  std::optional<size_t> phi_points_{};
   };
 
 bool operator!=(const EccentricOrbit& lhs, const EccentricOrbit& rhs);
