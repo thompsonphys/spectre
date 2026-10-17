@@ -8,13 +8,18 @@
 #include <cstddef>
 #include <memory>
 #include <optional>
+#include <tuple>
+#include <utility>
+#include <vector>
 
+#include "Domain/CreateInitialElement.hpp"
 #include "Domain/Creators/AlignedLattice.hpp"
 #include "Domain/Creators/RegisterDerivedWithCharm.hpp"
 #include "Domain/Creators/Tags/Domain.hpp"
 #include "Domain/Creators/Tags/FunctionsOfTime.hpp"
 #include "Domain/Creators/Tags/InitialExtents.hpp"
 #include "Domain/Creators/Tags/InitialRefinementLevels.hpp"
+#include "Domain/Structure/Element.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Tags.hpp"
 #include "Elliptic/BoundaryConditions/AnalyticSolution.hpp"
@@ -73,10 +78,66 @@ struct Metavariables {
   };
 };
 
+void test_inner_boundary_at_horizon() {
+  using InitializeEffectiveSource_detail::check_inner_boundary_at_horizon;
+  // Horizon of a = 0.9: r_+ = 1 + sqrt(1 - 0.9^2)
+  const double r_plus = 1.4358898943540672;
+  const AnalyticData::CircularOrbit penetrating{
+      1., 0.9, 10., 2, {{3., 3., 25., 25.}}, true, false};
+  const AnalyticData::CircularOrbit tortoise{1.,           0.9,   10.,  2,
+                                             std::nullopt, false, false};
+  // A domain in (r, cos(theta)) with two radial blocks, the element at its
+  // inner radial boundary and the element away from it
+  const auto setup = [](const double inner_radius) {
+    const domain::creators::AlignedLattice<2> domain_creator{
+        {{{inner_radius, 4., 20.}, {-1., 1.}}},
+        {},
+        {},
+        {{0, 0}},
+        {{4, 4}},
+        {},
+        {},
+        {}};
+    auto domain = domain_creator.create_domain();
+    const auto refinement = domain_creator.initial_refinement_levels();
+    auto inner = domain::create_initial_element(ElementId<2>{0},
+                                                domain.blocks(), refinement);
+    auto outer = domain::create_initial_element(ElementId<2>{1},
+                                                domain.blocks(), refinement);
+    return std::make_tuple(std::move(domain), std::move(inner),
+                           std::move(outer));
+  };
+  {
+    INFO("Inner boundary at the horizon");
+    const auto [domain, inner, outer] = setup(r_plus);
+    CHECK_NOTHROW(check_inner_boundary_at_horizon(penetrating, domain, inner));
+    CHECK_NOTHROW(check_inner_boundary_at_horizon(penetrating, domain, outer));
+  }
+  {
+    INFO("Inner boundary at the horizon of a = 0.5");
+    const auto [domain, inner, outer] = setup(1.866025403784);
+    CHECK_THROWS_WITH(
+        check_inner_boundary_at_horizon(penetrating, domain, inner),
+        Catch::Matchers::ContainsSubstring("is not at the horizon") and
+            Catch::Matchers::ContainsSubstring("1.43588989435"));
+    CHECK_NOTHROW(check_inner_boundary_at_horizon(penetrating, domain, outer));
+    // Without horizon-penetrating coordinates the horizon is at r_* = -inf
+    CHECK_NOTHROW(check_inner_boundary_at_horizon(tortoise, domain, inner));
+  }
+  {
+    INFO("Inner boundary inside the horizon");
+    const auto [domain, inner, outer] = setup(1.4);
+    CHECK_THROWS_WITH(
+        check_inner_boundary_at_horizon(penetrating, domain, inner),
+        Catch::Matchers::ContainsSubstring("is not at the horizon"));
+  }
+}
+
 }  // namespace
 
 SPECTRE_TEST_CASE("Unit.ScalarSelfForce.Actions.InitializeEffectiveSource",
                   "[Unit][ParallelAlgorithms]") {
+  test_inner_boundary_at_horizon();
   using background_tag =
       elliptic::Tags::Background<elliptic::analytic_data::Background>;
   using element_array = ElementArray<Metavariables>;

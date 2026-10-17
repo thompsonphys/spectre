@@ -3,7 +3,10 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstddef>
+#include <iomanip>
+#include <ios>
 #include <optional>
 #include <utility>
 
@@ -12,11 +15,14 @@
 #include "DataStructures/DataBox/PrefixHelpers.hpp"
 #include "DataStructures/DataBox/Prefixes.hpp"
 #include "DataStructures/TaggedTuple.hpp"
+#include "DataStructures/Tensor/Tensor.hpp"
 #include "DataStructures/Variables.hpp"
 #include "DataStructures/VariablesTag.hpp"
 #include "Domain/BlockLogicalCoordinates.hpp"
 #include "Domain/Creators/Tags/Domain.hpp"
 #include "Domain/Domain.hpp"
+#include "Domain/Structure/Direction.hpp"
+#include "Domain/Structure/Element.hpp"
 #include "Domain/Structure/ElementId.hpp"
 #include "Domain/Tags.hpp"
 #include "Elliptic/DiscontinuousGalerkin/Tags.hpp"
@@ -33,6 +39,7 @@
 #include "ParallelAlgorithms/Amr/Tags.hpp"
 #include "ParallelAlgorithms/Initialization/MutateAssign.hpp"
 #include "Utilities/CallWithDynamicType.hpp"
+#include "Utilities/ErrorHandling/Error.hpp"
 #include "Utilities/MakeWithValue.hpp"
 #include "Utilities/TMPL.hpp"
 
@@ -44,6 +51,49 @@ struct GlobalCache;
 /// \endcond
 
 namespace ScalarSelfForce::Actions {
+
+namespace InitializeEffectiveSource_detail {
+/*!
+ * \brief It is an error if the background uses horizon-penetrating coordinates
+ * and the inner radial boundary of the domain at this element is not at the
+ * horizon.
+ *
+ * \details With `PenetratingHorizon` the radial coordinate is the
+ * Boyer-Lindquist radius \f$r\f$, and the inner radial boundary needs no
+ * boundary condition only at the horizon
+ * \f$r_+ = M (1 + \sqrt{1 - \chi^2})\f$, where the radial flux coefficient
+ * \f$\Delta / (r^2 + a^2)\f$ vanishes. Outside the horizon the flux through
+ * the boundary is left unconstrained, and inside it the operator is not
+ * elliptic. The check applies to elements with an external boundary in the
+ * lower radial (first logical) direction, and allows a relative difference of
+ * \f$10^{-10}\f$.
+ */
+template <size_t Dim>
+void check_inner_boundary_at_horizon(
+    const AnalyticData::SelfForceBackground& background,
+    const Domain<Dim>& domain, const Element<Dim>& element) {
+  if (not background.penetrating_horizon() or
+      element.external_boundaries().count(Direction<Dim>::lower_xi()) == 0) {
+    return;
+  }
+  const double mass = background.black_hole_mass();
+  const double spin = background.black_hole_spin();
+  const double r_plus = mass * (1. + std::sqrt(1. - spin * spin));
+  tnsr::I<double, Dim, Frame::BlockLogical> lower_face_center{0.};
+  get<0>(lower_face_center) = -1.;
+  const double inner_radius =
+      get<0>(domain.blocks()[element.id().block_id()].stationary_map()(
+          lower_face_center));
+  if (std::abs(inner_radius - r_plus) > 1.e-10 * r_plus) {
+    ERROR("The inner radial boundary of the domain at r = "
+          << std::defaultfloat << std::setprecision(16) << inner_radius
+          << " is not at the horizon r_+ = M (1 + sqrt(1 - chi^2)) = " << r_plus
+          << " of the black hole with M = " << mass << " and chi = " << spin
+          << ". With PenetratingHorizon the inner radial boundary must be at "
+             "the horizon.");
+  }
+}
+}  // namespace InitializeEffectiveSource_detail
 
 /*!
  * \brief Initialize the effective source and singular field for the scalar
@@ -128,6 +178,8 @@ struct InitializeEffectiveSource : tt::ConformsTo<::amr::protocols::Projector> {
     const auto& orbit =
         dynamic_cast<const ScalarSelfForce::AnalyticData::SelfForceBackground&>(
             background);
+    InitializeEffectiveSource_detail::check_inner_boundary_at_horizon(
+        orbit, domain, element);
 
     // Check if this element and its neighbors solve for the regular field or
     // the full field
