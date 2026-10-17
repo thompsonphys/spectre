@@ -244,6 +244,98 @@ void test_operator_consistency(const bool impose_equatorial_symmetry) {
                                  custom_approx);
   }
 }
+
+// Outside the hyperboloidal window the slicing t' = t + h(r) with
+// dh/dr = -H (r^2 + a^2) / Delta changes the mode function by exp(i psi),
+// psi = omega h, with omega = m Omega_phi + n Omega_r. The operator there must
+// therefore act on exp(i psi) f as the window operator acts on f. Comparing
+// two orbits that differ only in where the window ends checks every term of
+// the operator that depends on H, in the inner (H = -1) or the outer (H = +1)
+// null-slicing region.
+void test_slicing_covariance(const int n_mode_number, const bool inner) {
+  CAPTURE(n_mode_number);
+  CAPTURE(inner);
+  const double r_lower = inner ? 2.3 : 30.;
+  const double r_upper = inner ? 2.9 : 35.;
+  const size_t npoints = 20;
+  const domain::creators::Rectangle domain_creator{{{r_lower, 0.1}},
+                                                   {{r_upper, 0.3}},
+                                                   {{0, 0}},
+                                                   {{npoints, npoints}},
+                                                   {{false, false}}};
+  const auto domain = domain_creator.create_domain();
+  const ElementId<2> element_id{0};
+  const ElementMap<2, Frame::Inertial> element_map{element_id,
+                                                   domain.blocks()[0]};
+  const Mesh<2> mesh{npoints, Spectral::Basis::Legendre,
+                     Spectral::Quadrature::GaussLobatto};
+  const auto xi = logical_coordinates(mesh);
+  const auto x = element_map(xi);
+  const auto inv_jacobian = element_map.inv_jacobian(xi);
+  const DataVector& r = get<0>(x);
+  const DataVector& z = get<1>(x);
+
+  // The region lies in the null slicing of `null_slicing` and in the window of
+  // `window`. The background needs only the orbital frequencies, so a few time
+  // points suffice.
+  const EccentricOrbit null_slicing{
+      1.,   0.5,   10., 0.2,         2, n_mode_number, {{3., 3., 25., 25.}},
+      true, false, 4,   std::nullopt};
+  const EccentricOrbit window{1.,
+                              0.5,
+                              10.,
+                              0.2,
+                              2,
+                              n_mode_number,
+                              inner ? std::array<double, 4>{{2., 2., 25., 25.}}
+                                    : std::array<double, 4>{{3., 3., 40., 40.}},
+                              true,
+                              false,
+                              4,
+                              std::nullopt};
+  const double H = inner ? -1. : 1.;
+  const double omega =
+      2. * window.omega_phi() + n_mode_number * window.omega_r();
+  const double M = 1.;
+  const double a = 0.5;
+  const double r_plus = M * (1. + sqrt(1. - square(a)));
+  const DataVector r_minus_r_plus = r - r_plus;
+  const DataVector r_star =
+      gr::tortoise_radius_from_boyer_lindquist_minus_r_plus(r_minus_r_plus, M,
+                                                            a);
+  const DataVector psi = -H * omega * r_star;
+  const ComplexDataVector phase =
+      cos(psi) + std::complex<double>(0., 1.) * sin(psi);
+
+  const auto apply_operator = [&mesh, &inv_jacobian, &x](
+                                  const EccentricOrbit& orbit,
+                                  const Scalar<ComplexDataVector>& field) {
+    const auto background =
+        orbit.variables(x, EccentricOrbit::background_tags{});
+    const auto deriv_field = partial_derivative(field, mesh, inv_jacobian);
+    tnsr::I<ComplexDataVector, 2> flux{};
+    ScalarSelfForce::Fluxes::apply(
+        make_not_null(&flux), get<Tags::Alpha>(background), {}, deriv_field);
+    auto result = divergence(flux, mesh, inv_jacobian);
+    get(result) *= -1.;
+    ScalarSelfForce::Sources::apply(
+        make_not_null(&result), get<Tags::Beta>(background),
+        get<Tags::Gamma>(background), field, deriv_field, flux);
+    return result;
+  };
+  // A low-order polynomial, so that its spectral derivatives are exact
+  const Scalar<ComplexDataVector> f{
+      ComplexDataVector{(1. + 0.3 * r + 0.1 * square(r)) * (1. + square(z)) +
+                        std::complex<double>(0., 1.) * r * z}};
+  const Scalar<ComplexDataVector> phase_times_f{
+      ComplexDataVector{phase * get(f)}};
+  const auto expected =
+      ComplexDataVector{phase * get(apply_operator(window, f))};
+  const Approx custom_approx =
+      Approx::custom().epsilon(1.e-9).scale(max(abs(expected)));
+  CHECK_ITERABLE_CUSTOM_APPROX(get(apply_operator(null_slicing, phase_times_f)),
+                               expected, custom_approx);
+}
 }  // namespace
 
 SPECTRE_TEST_CASE("Unit.PointwiseFunctions.ScalarSelfForce.EccentricOrbit",
@@ -253,5 +345,9 @@ SPECTRE_TEST_CASE("Unit.PointwiseFunctions.ScalarSelfForce.EccentricOrbit",
   test_m_modes();
   test_operator_consistency(false);
   test_operator_consistency(true);
+  for (const bool inner : {true, false}) {
+    test_slicing_covariance(0, inner);
+    test_slicing_covariance(2, inner);
+  }
 }
 }  // namespace ScalarSelfForce::AnalyticData

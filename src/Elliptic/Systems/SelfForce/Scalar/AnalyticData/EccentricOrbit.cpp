@@ -406,12 +406,13 @@ EccentricOrbit::variables(
       get(beta)[p] /= get<0>(alpha)[p];
     }
   }
-  get(beta) +=
-      get<1>(alpha) * (m_mode_number_ * (m_mode_number_ + 1) +
-                       2. * M / r * (1. - square(a) / M / r) +
-                       std::complex<double>(0., 2. * a * m_mode_number_) *
-                           (1. + a * Omega_phi * H) / r) -
-      std::complex<double>(0., k) * dH;
+  get(beta) += get<1>(alpha) * (m_mode_number_ * (m_mode_number_ + 1) +
+                                2. * M / r * (1. - square(a) / M / r) +
+                                // The slicing term carries the mode frequency
+                                // k, which is m Omega_phi only for n = 0
+                                std::complex<double>(0., 2. * a) *
+                                    (m_mode_number_ + a * k * H) / r) -
+               std::complex<double>(0., k) * dH;
   get<0>(gamma) =
       2. * square(a) * delta / (r * r_sq_plus_a_sq_sq) -
       std::complex<double>(0., 2. * a * m_mode_number_) / r_sq_plus_a_sq -
