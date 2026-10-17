@@ -5,6 +5,7 @@ set(LIBRARY "Test_ScalarSelfForceAmrCriteria")
 
 set(LIBRARY_SOURCES
   Test_RefineAtPunctures.cpp
+  Test_RefineAtWorldtubeBoundary.cpp
   )
 
 add_test_library(${LIBRARY} "${LIBRARY_SOURCES}")
@@ -15,6 +16,7 @@ target_link_libraries(
   Amr
   AmrCriteria
   DataStructures
+  Domain
   DomainCreators
   DomainStructure
   Options

@@ -18,6 +18,7 @@
 #include "Elliptic/Executables/Solver.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/Actions/InitializeEffectiveSource.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/AmrCriteria/RefineAtPuncture.hpp"
+#include "Elliptic/Systems/SelfForce/Scalar/AmrCriteria/RefineAtWorldtubeBoundary.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/AnalyticData/CircularOrbit.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/AnalyticData/EccentricOrbit.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/AnalyticData/SelfForceBackground.hpp"
@@ -100,24 +101,22 @@ struct Metavariables {
         tmpl::pair<DomainCreator<volume_dim>,
                    tmpl::list<domain::creators::AlignedLattice<2>>>,
         tmpl::pair<elliptic::analytic_data::Background,
-                   tmpl::list<
-                   ScalarSelfForce::AnalyticData::CircularOrbit,
-                   ScalarSelfForce::AnalyticData::EccentricOrbit>
-                       >,
+                   tmpl::list<ScalarSelfForce::AnalyticData::CircularOrbit,
+                              ScalarSelfForce::AnalyticData::EccentricOrbit>>,
         tmpl::pair<elliptic::analytic_data::InitialGuess,
-                   tmpl::list<
-                   ScalarSelfForce::AnalyticData::CircularOrbit,
-                   ScalarSelfForce::AnalyticData::EccentricOrbit>
-                       >,
+                   tmpl::list<ScalarSelfForce::AnalyticData::CircularOrbit,
+                              ScalarSelfForce::AnalyticData::EccentricOrbit>>,
         tmpl::pair<elliptic::analytic_data::AnalyticSolution, tmpl::list<>>,
         tmpl::pair<elliptic::BoundaryConditions::BoundaryCondition<volume_dim>,
                    tmpl::list<ScalarSelfForce::BoundaryConditions::None,
                               ScalarSelfForce::BoundaryConditions::Sommerfeld>>,
         tmpl::pair<
             ::amr::Criterion,
-            tmpl::push_back<::amr::Criteria::standard_criteria<
-                                volume_dim, typename system::primal_fields>,
-                            ScalarSelfForce::AmrCriteria::RefineAtPuncture>>,
+            tmpl::push_back<
+                ::amr::Criteria::standard_criteria<
+                    volume_dim, typename system::primal_fields>,
+                ScalarSelfForce::AmrCriteria::RefineAtPuncture,
+                ScalarSelfForce::AmrCriteria::RefineAtWorldtubeBoundary>>,
         tmpl::pair<Event,
                    tmpl::flatten<tmpl::list<
                        Events::Completion,
