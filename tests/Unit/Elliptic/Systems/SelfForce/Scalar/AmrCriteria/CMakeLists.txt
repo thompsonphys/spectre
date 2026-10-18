@@ -6,6 +6,7 @@ set(LIBRARY "Test_ScalarSelfForceAmrCriteria")
 set(LIBRARY_SOURCES
   Test_RefineAtPunctures.cpp
   Test_RefineAtWorldtubeBoundary.cpp
+  Test_RefineByOrbitDistance.cpp
   )
 
 add_test_library(${LIBRARY} "${LIBRARY_SOURCES}")
