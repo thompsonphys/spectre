@@ -32,6 +32,23 @@ namespace ScalarSelfForce::BoundaryConditions {
  * \end{equation}
  *
  * These boundary conditions currently assume a circular equatorial orbit.
+ *
+ * With hyperboloidal slicing the field approaches a function of the angle at
+ * large distance, and the conditions are derived from the large-r limit of the
+ * equation \f$-\partial_i F^i + \beta \Psi + \gamma_i \partial_i \Psi = 0\f$
+ * with \f$F^i = \alpha^i \partial_i \Psi\f$. Order 1 imposes
+ * \f$n_i F^i = 0\f$. Order 2 imposes
+ * \f$\gamma_r \partial_r \Psi = -\beta \Psi\f$, which is exact only for the
+ * angular component of degree \f$l = m\f$. Order 3 adds the angular terms,
+ *
+ * \begin{equation}
+ * \gamma_r \partial_r \Psi = -\beta \Psi - \gamma_z \partial_z \Psi
+ *   + \partial_z (\alpha^z \partial_z \Psi) \text{,}
+ * \end{equation}
+ *
+ * and leaves out only the radial flux divergence. The angular derivative of the
+ * flux is taken along the boundary face, from the polynomial in \f$z\f$ that
+ * interpolates the face points, so the face must lie at constant radius.
  */
 class Sommerfeld : public elliptic::BoundaryConditions::BoundaryCondition<2> {
  private:
@@ -54,8 +71,8 @@ class Sommerfeld : public elliptic::BoundaryConditions::BoundaryCondition<2> {
     using type = double;
   };
   struct Eccentricity {
-    static constexpr Options::String help = 
-      "Eccentricity e of the eccentric orbit";
+    static constexpr Options::String help =
+        "Eccentricity e of the eccentric orbit";
     using type = double;
   };
   struct MModeNumber {
@@ -64,8 +81,8 @@ class Sommerfeld : public elliptic::BoundaryConditions::BoundaryCondition<2> {
     using type = int;
   };
   struct NModeNumber {
-    static constexpr Options::String help = 
-      "Mode number 'n' of the scalar field";
+    static constexpr Options::String help =
+        "Mode number 'n' of the scalar field";
     using type = int;
   };
   struct HyperboloidalSlicing {
@@ -78,14 +95,17 @@ class Sommerfeld : public elliptic::BoundaryConditions::BoundaryCondition<2> {
     static constexpr Options::String help =
         "Order of the boundary condition. First order (Order=1) implements "
         "just the leading 'i m Omega' term. Second order (Order=2) includes "
-        "the next-to-leading '1/r' term as well (Robin-type).";
+        "the next-to-leading '1/r' term as well (Robin-type). Third order "
+        "(Order=3, only with hyperboloidal slicing) also includes the angular "
+        "derivative terms of the '1/r^2' term.";
     using type = int;
   };
 
   static constexpr Options::String help =
       "Radial Sommerfeld boundary condition";
-  using options = tmpl::list<BlackHoleMass, BlackHoleSpin, SemiLatusRectum,
-                             Eccentricity, MModeNumber, NModeNumber, HyperboloidalSlicing, Order>;
+  using options =
+      tmpl::list<BlackHoleMass, BlackHoleSpin, SemiLatusRectum, Eccentricity,
+                 MModeNumber, NModeNumber, HyperboloidalSlicing, Order>;
 
   Sommerfeld() = default;
   Sommerfeld(const Sommerfeld&) = default;
@@ -95,7 +115,7 @@ class Sommerfeld : public elliptic::BoundaryConditions::BoundaryCondition<2> {
   ~Sommerfeld() override = default;
 
   explicit Sommerfeld(double black_hole_mass, double black_hole_spin,
-                      double semi_latus_rectum, double eccentricity, 
+                      double semi_latus_rectum, double eccentricity,
                       int m_mode_number, int n_mode_number,
                       bool hyperboloidal_slicing, int order);
 
@@ -123,7 +143,8 @@ class Sommerfeld : public elliptic::BoundaryConditions::BoundaryCondition<2> {
   }
 
   using argument_tags =
-      tmpl::list<Tags::Alpha, Tags::Beta, Tags::Gamma>;
+      tmpl::list<Tags::Alpha, Tags::Beta, Tags::Gamma,
+                 domain::Tags::Coordinates<2, Frame::Inertial>>;
   using volume_tags = tmpl::list<>;
 
   void apply(gsl::not_null<Scalar<ComplexDataVector>*> field,
@@ -131,11 +152,11 @@ class Sommerfeld : public elliptic::BoundaryConditions::BoundaryCondition<2> {
              const tnsr::i<ComplexDataVector, 2>& deriv_field,
              const tnsr::I<ComplexDataVector, 2>& alpha,
              const Scalar<ComplexDataVector>& beta,
-             const tnsr::i<ComplexDataVector, 2>& gamma) const;
+             const tnsr::i<ComplexDataVector, 2>& gamma,
+             const tnsr::I<DataVector, 2>& face_coordinates) const;
 
-  using argument_tags_linearized =
-      tmpl::list<Tags::Alpha, Tags::Beta, Tags::Gamma>;
-  using volume_tags_linearized = tmpl::list<>;
+  using argument_tags_linearized = argument_tags;
+  using volume_tags_linearized = volume_tags;
 
   void apply_linearized(
       gsl::not_null<Scalar<ComplexDataVector>*> field_correction,
@@ -143,7 +164,8 @@ class Sommerfeld : public elliptic::BoundaryConditions::BoundaryCondition<2> {
       const tnsr::i<ComplexDataVector, 2>& deriv_field_correction,
       const tnsr::I<ComplexDataVector, 2>& alpha,
       const Scalar<ComplexDataVector>& beta,
-      const tnsr::i<ComplexDataVector, 2>& gamma) const;
+      const tnsr::i<ComplexDataVector, 2>& gamma,
+      const tnsr::I<DataVector, 2>& face_coordinates) const;
 
   // NOLINTNEXTLINE
   void pup(PUP::er& p) override;
