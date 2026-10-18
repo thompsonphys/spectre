@@ -134,7 +134,9 @@ void test_order_1_and_2() {
     CHECK_ITERABLE_APPROX(n_dot_flux, expected);
   }
   {
-    INFO("Apply boundary condition: Order 2");
+    INFO(
+        "Apply boundary condition: Order 2 for a field without angular "
+        "dependence");
     const auto created = TestHelpers::test_factory_creation<BC, Sommerfeld>(
         std::string{base_sommerfeld} +
         "  HyperboloidalSlicing: True\n  Order: 2");
@@ -153,13 +155,13 @@ void test_order_1_and_2() {
   }
 }
 
-void test_order_3() {
-  INFO("Apply boundary condition: Order 3");
+void test_order_2_and_3() {
+  INFO("Apply boundary condition with hyperboloidal slicing: Order 2 and 3");
   const auto created = TestHelpers::test_factory_creation<BC, Sommerfeld>(
       std::string{base_sommerfeld} +
-      "  HyperboloidalSlicing: True\n  Order: 3");
+      "  HyperboloidalSlicing: True\n  Order: 2");
   const auto& boundary_condition = dynamic_cast<const Sommerfeld&>(*created);
-  CHECK(boundary_condition.order() == 3);
+  CHECK(boundary_condition.order() == 2);
   // Outer radial face with 6 points in cos(theta) = z = 0.5 + 0.3 eta
   const Mesh<2> mesh{
       {{4, 6}}, Spectral::Basis::Legendre, Spectral::Quadrature::Gauss};
@@ -184,49 +186,60 @@ void test_order_3() {
   tnsr::i<ComplexDataVector, 2> deriv_field{num_pts};
   get<0>(deriv_field) = ComplexDataVector{num_pts, 0.7};
   get<1>(deriv_field) = 3. * square(z) + 2. * i;
-  // The large-r equation without the radial flux divergence,
+  // Order 2: the large-r equation without the radial flux divergence,
   // gamma_r du/dr = -beta u - gamma_z du/dz + d/dz(alpha^z du/dz),
   // with d/dz(alpha^z du/dz) = 0.01 (6 z - 12 z^3 - 4 i z)
   const ComplexDataVector angular_flux_divergence =
       0.01 * (6. * z - 12. * cube(z) - 4. * i * z);
+  const ComplexDataVector right_hand_side =
+      -get(beta) * get(field) - get<1>(gamma) * get<1>(deriv_field) +
+      angular_flux_divergence;
   const ComplexDataVector expected =
-      get<0>(alpha) *
-      (-get(beta) * get(field) - get<1>(gamma) * get<1>(deriv_field) +
-       angular_flux_divergence) /
-      get<0>(gamma);
+      get<0>(alpha) * right_hand_side / get<0>(gamma);
   CHECK_ITERABLE_APPROX((apply<false>(boundary_condition, mesh, direction,
                                       alpha, beta, gamma, field, deriv_field)),
                         expected);
   CHECK_ITERABLE_APPROX((apply<true>(boundary_condition, mesh, direction, alpha,
                                      beta, gamma, field, deriv_field)),
                         expected);
-  // Order 2 leaves out the angular terms
-  const auto order_2 = TestHelpers::test_factory_creation<BC, Sommerfeld>(
+  // Order 3 also includes the radial flux divergence to leading order,
+  // -d/dr(alpha^r du/dr) = (2 / r) alpha^r du/dr, on the face at r = 1000
+  const auto order_3 = TestHelpers::test_factory_creation<BC, Sommerfeld>(
       std::string{base_sommerfeld} +
-      "  HyperboloidalSlicing: True\n  Order: 2");
-  const ComplexDataVector expected_order_2 =
-      -get<0>(alpha) * get(beta) * get(field) / get<0>(gamma);
+      "  HyperboloidalSlicing: True\n  Order: 3");
+  const ComplexDataVector expected_order_3 =
+      get<0>(alpha) * right_hand_side /
+      (get<0>(gamma) + 2. * get<0>(alpha) / 1000.);
   CHECK_ITERABLE_APPROX(
-      (apply<false>(dynamic_cast<const Sommerfeld&>(*order_2), mesh, direction,
+      (apply<false>(dynamic_cast<const Sommerfeld&>(*order_3), mesh, direction,
                     alpha, beta, gamma, field, deriv_field)),
-      expected_order_2);
+      expected_order_3);
+  CHECK_ITERABLE_APPROX(
+      (apply<true>(dynamic_cast<const Sommerfeld&>(*order_3), mesh, direction,
+                   alpha, beta, gamma, field, deriv_field)),
+      expected_order_3);
 
-  INFO("Order 3 needs hyperboloidal slicing");
-  const auto without_slicing =
-      TestHelpers::test_factory_creation<BC, Sommerfeld>(
-          std::string{base_sommerfeld} +
-          "  HyperboloidalSlicing: False\n  Order: 3");
-  CHECK_THROWS_WITH(
-      (apply<false>(dynamic_cast<const Sommerfeld&>(*without_slicing), mesh,
-                    direction, alpha, beta, gamma, field, deriv_field)),
-      Catch::Matchers::ContainsSubstring("Order 3"));
+  INFO("Order 3 needs hyperboloidal slicing, and order 4 does not exist");
+  for (const auto& [order, slicing] :
+       {std::pair{3, "False"}, std::pair{4, "False"}, std::pair{4, "True"}}) {
+    CAPTURE(order);
+    CAPTURE(slicing);
+    const auto created_unsupported =
+        TestHelpers::test_factory_creation<BC, Sommerfeld>(
+            std::string{base_sommerfeld} + "  HyperboloidalSlicing: " +
+            slicing + "\n  Order: " + std::to_string(order));
+    CHECK_THROWS_WITH(
+        (apply<false>(dynamic_cast<const Sommerfeld&>(*created_unsupported),
+                      mesh, direction, alpha, beta, gamma, field, deriv_field)),
+        Catch::Matchers::ContainsSubstring("Order " + std::to_string(order)));
+  }
 }
 }  // namespace
 
 SPECTRE_TEST_CASE("Unit.ScalarSelfForce.BoundaryConditions.Sommerfeld",
                   "[Unit][Elliptic]") {
   test_order_1_and_2();
-  test_order_3();
+  test_order_2_and_3();
 }
 
 }  // namespace ScalarSelfForce::BoundaryConditions
