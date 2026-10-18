@@ -34,21 +34,28 @@ namespace ScalarSelfForce::BoundaryConditions {
  * These boundary conditions currently assume a circular equatorial orbit.
  *
  * With hyperboloidal slicing the field approaches a function of the angle at
- * large distance, and the conditions are derived from the large-r limit of the
- * equation \f$-\partial_i F^i + \beta \Psi + \gamma_i \partial_i \Psi = 0\f$
- * with \f$F^i = \alpha^i \partial_i \Psi\f$. Order 1 imposes
- * \f$n_i F^i = 0\f$. Order 2 imposes
- * \f$\gamma_r \partial_r \Psi = -\beta \Psi\f$, which is exact only for the
- * angular component of degree \f$l = m\f$. Order 3 adds the angular terms,
+ * large distance, \f$\Psi = \Psi_0 + \Psi_1 / r + \dots\f$, and the
+ * conditions follow from the large-r limit of the equation
+ * \f$-\partial_i F^i + \beta \Psi + \gamma_i \partial_i \Psi = 0\f$ with
+ * \f$F^i = \alpha^i \partial_i \Psi\f$. Order 1 imposes \f$n_i F^i = 0\f$,
+ * which holds to leading order. Order 2 balances the terms of order
+ * \f$1/r^2\f$, which determine \f$\Psi_1\f$,
  *
  * \begin{equation}
  * \gamma_r \partial_r \Psi = -\beta \Psi - \gamma_z \partial_z \Psi
  *   + \partial_z (\alpha^z \partial_z \Psi) \text{,}
  * \end{equation}
  *
- * and leaves out only the radial flux divergence. The angular derivative of the
- * flux is taken along the boundary face, from the polynomial in \f$z\f$ that
+ * and leaves out only the radial flux divergence, which is of order
+ * \f$1/r^3\f$. Order 3 includes it as \f$-\partial_r F^r = 2 F^r / r\f$ by
+ * replacing \f$\gamma_r\f$ with \f$\gamma_r + 2 \alpha^r / r\f$, which leaves
+ * an error of order \f$1/r^4\f$. The coefficients are evaluated exactly at the
+ * boundary, not expanded in \f$1/r\f$. The angular derivative of the flux is
+ * taken along the boundary face, from the polynomial in \f$z\f$ that
  * interpolates the face points, so the face must lie at constant radius.
+ *
+ * Without hyperboloidal slicing, order 2 leaves out the angular derivative
+ * terms and is exact only for the angular component of degree \f$l = m\f$.
  */
 class Sommerfeld : public elliptic::BoundaryConditions::BoundaryCondition<2> {
  private:
@@ -93,11 +100,12 @@ class Sommerfeld : public elliptic::BoundaryConditions::BoundaryCondition<2> {
   };
   struct Order {
     static constexpr Options::String help =
-        "Order of the boundary condition. First order (Order=1) implements "
-        "just the leading 'i m Omega' term. Second order (Order=2) includes "
-        "the next-to-leading '1/r' term as well (Robin-type). Third order "
-        "(Order=3, only with hyperboloidal slicing) also includes the angular "
-        "derivative terms of the '1/r^2' term.";
+        "Order of the boundary condition in 1/r. First order (Order=1) "
+        "implements just the leading 'i m Omega' term. Second order (Order=2) "
+        "includes the next-to-leading '1/r' term as well (Robin-type), with "
+        "its angular derivative terms only with hyperboloidal slicing. Third "
+        "order (Order=3, only with hyperboloidal slicing) also includes the "
+        "radial flux divergence.";
     using type = int;
   };
 

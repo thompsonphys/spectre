@@ -81,26 +81,30 @@ void Sommerfeld::apply(
   if (hyperboloidal_slicing_) {
     if (order_ == 1) {
       get(*n_dot_flux) = 0.;
-    } else if (order_ == 2) {
-      get(*n_dot_flux) =
-          -get<0>(alpha) * get(beta) / get<0>(gamma) * get(*field);
-    } else if (order_ == 3) {
+    } else if (order_ == 2 or order_ == 3) {
       ASSERT(max(abs(get<0>(face_coordinates) - get<0>(face_coordinates)[0])) <
                  1.e-10 * std::abs(get<0>(face_coordinates)[0]),
-             "The Sommerfeld boundary condition of order 3 takes angular "
-             "derivatives along the boundary face, so the face must lie at "
-             "constant radius, but it spans r = "
+             "The Sommerfeld boundary condition of order "
+                 << order_
+                 << " takes angular derivatives along the boundary face, so "
+                    "the face must lie at constant radius, but it spans r = "
                  << min(get<0>(face_coordinates)) << " to "
                  << max(get<0>(face_coordinates)) << ".");
       const ComplexDataVector angular_flux_divergence =
           interpolating_derivative(
               get<1>(face_coordinates),
               ComplexDataVector{get<1>(alpha) * get<1>(deriv_field)});
+      // Order 3 includes the radial flux divergence to leading order in 1/r,
+      // -d_r(alpha^r d_r u) = (2 / r) alpha^r d_r u
+      ComplexDataVector radial_coefficient = get<0>(gamma);
+      if (order_ == 3) {
+        radial_coefficient += 2. * get<0>(alpha) / get<0>(face_coordinates);
+      }
       get(*n_dot_flux) =
           get<0>(alpha) *
           (-get(beta) * get(*field) - get<1>(gamma) * get<1>(deriv_field) +
            angular_flux_divergence) /
-          get<0>(gamma);
+          radial_coefficient;
     } else {
       ERROR("Order " << order_
                      << " not implemented for Sommerfeld boundary condition "
