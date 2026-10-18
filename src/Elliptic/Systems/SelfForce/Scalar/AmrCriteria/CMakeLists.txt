@@ -10,6 +10,7 @@ spectre_target_sources(
   PRIVATE
   RefineAtPuncture.cpp
   RefineAtWorldtubeBoundary.cpp
+  RefineByOrbitDistance.cpp
   )
 
 spectre_target_headers(
@@ -18,6 +19,7 @@ spectre_target_headers(
   HEADERS
   RefineAtPuncture.hpp
   RefineAtWorldtubeBoundary.hpp
+  RefineByOrbitDistance.hpp
   )
 
 target_link_libraries(

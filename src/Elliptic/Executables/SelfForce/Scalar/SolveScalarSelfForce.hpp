@@ -19,6 +19,7 @@
 #include "Elliptic/Systems/SelfForce/Scalar/Actions/InitializeEffectiveSource.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/AmrCriteria/RefineAtPuncture.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/AmrCriteria/RefineAtWorldtubeBoundary.hpp"
+#include "Elliptic/Systems/SelfForce/Scalar/AmrCriteria/RefineByOrbitDistance.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/AnalyticData/CircularOrbit.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/AnalyticData/EccentricOrbit.hpp"
 #include "Elliptic/Systems/SelfForce/Scalar/AnalyticData/SelfForceBackground.hpp"
@@ -112,13 +113,13 @@ struct Metavariables {
                    tmpl::list<ScalarSelfForce::BoundaryConditions::Neumann,
                               ScalarSelfForce::BoundaryConditions::None,
                               ScalarSelfForce::BoundaryConditions::Sommerfeld>>,
-        tmpl::pair<
-            ::amr::Criterion,
-            tmpl::push_back<
-                ::amr::Criteria::standard_criteria<
-                    volume_dim, typename system::primal_fields>,
-                ScalarSelfForce::AmrCriteria::RefineAtPuncture,
-                ScalarSelfForce::AmrCriteria::RefineAtWorldtubeBoundary>>,
+        tmpl::pair<::amr::Criterion,
+                   tmpl::push_back<
+                       ::amr::Criteria::standard_criteria<
+                           volume_dim, typename system::primal_fields>,
+                       ScalarSelfForce::AmrCriteria::RefineAtPuncture,
+                       ScalarSelfForce::AmrCriteria::RefineAtWorldtubeBoundary,
+                       ScalarSelfForce::AmrCriteria::RefineByOrbitDistance>>,
         tmpl::pair<Event,
                    tmpl::flatten<tmpl::list<
                        Events::Completion,
