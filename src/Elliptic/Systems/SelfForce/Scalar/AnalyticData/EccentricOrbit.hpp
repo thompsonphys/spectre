@@ -192,7 +192,7 @@ class EccentricOrbit : public SelfForceBackground,
     return hyperboloidal_slicing_transitions_;
   }
   bool penetrating_horizon() const override { return penetrating_horizon_; }
-  bool impose_equatorial_symmetry() const {
+  bool impose_equatorial_symmetry() const override {
     return impose_equatorial_symmetry_;
   }
 
