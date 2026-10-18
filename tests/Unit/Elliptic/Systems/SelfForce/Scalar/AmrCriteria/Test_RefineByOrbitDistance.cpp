@@ -97,12 +97,14 @@ ElementId<2> element(const std::array<size_t, 2>& levels,
 }
 
 void check_flags(const Domain<2>& domain, const ElementId<2>& element_id,
-                 const double kappa, const std::array<amr::Flag, 2>& expected) {
+                 const double kappa, const std::array<amr::Flag, 2>& expected,
+                 const double min_size = 0.) {
   CAPTURE(element_id);
   CAPTURE(kappa);
+  CAPTURE(min_size);
   CHECK(RefineByOrbitDistance_detail::flags(
-            domain.blocks()[element_id.block_id()], element_id, 8., 12.,
-            kappa) == expected);
+            domain.blocks()[element_id.block_id()], element_id, 8., 12., kappa,
+            min_size) == expected);
 }
 
 std::unique_ptr<elliptic::analytic_data::Background> circular_orbit(
@@ -195,6 +197,30 @@ void test_inverse_block() {
   check_flags(polar_domain, element({{2, 2}}, {{0, 3}}, 1), 0.68, {{N, N}});
 }
 
+void test_min_size() {
+  INFO("Minimum size");
+  const auto full = lattice({4., 20.}, {-0.5, 0.5});
+  // r in [8, 12], cos(theta) in [0, 0.25]: on the segment, D = 0, with
+  // h = 4 (r) and 2 (theta) at the nearest point (8, 0)
+  const auto on_segment = element({{2, 2}}, {{1, 2}});
+  check_flags(full, on_segment, 0.9, {{S, S}});
+  check_flags(full, on_segment, 0.9, {{S, S}}, 1.);
+  check_flags(full, on_segment, 0.9, {{S, N}}, 3.);
+  check_flags(full, on_segment, 0.9, {{N, N}}, 5.);
+  // r in [4, 8], cos(theta) in [0, 0.25]: touches the end of the segment, with
+  // h = 4 (r) and 2 (theta) at the nearest point (8, 0)
+  check_flags(full, element({{2, 2}}, {{0, 2}}), 0.9, {{S, N}}, 3.);
+  // r in [8, 12], cos(theta) in [0.25, 0.5]: h / D = 1.936 (r), 1.000
+  // (theta) with h = 4 (r) and 2.066 (theta). The minimum size stops the
+  // angular split that kappa D alone would request.
+  const auto above_segment = element({{2, 2}}, {{1, 3}});
+  check_flags(full, above_segment, 0.9, {{S, S}}, 1.);
+  check_flags(full, above_segment, 0.9, {{S, N}}, 3.);
+  // r in [16, 20], cos(theta) in [0, 0.5]: h / D = 1.0 (r), 2.0 (theta). A
+  // minimum size below kappa D leaves the flags unchanged.
+  check_flags(full, element({{2, 1}}, {{3, 1}}), 1.5, {{N, S}}, 0.1);
+}
+
 void test_large_kappa() {
   INFO("Large kappa splits exactly the elements that RefineAtPuncture splits");
   const auto make_domain = []() { return lattice({4., 20.}, {-0.5, 0.5}); };
@@ -215,7 +241,7 @@ void test_large_kappa() {
     check_flags(domain, element_id, 1.e3,
                 touches_segment ? std::array{S, S} : std::array{N, N});
   }
-  const RefineByOrbitDistance criterion{1.e3};
+  const RefineByOrbitDistance criterion{1.e3, std::nullopt};
   const RefineAtPuncture refine_at_puncture{};
   for (const bool eccentric : {false, true}) {
     CAPTURE(eccentric);
@@ -242,18 +268,36 @@ void test_criterion() {
   const auto created =
       TestHelpers::test_creation<std::unique_ptr<amr::Criterion>,
                                  Metavariables>(
-          "RefineByOrbitDistance:\n  MaxSizeOverDistance: 1.5");
+          "RefineByOrbitDistance:\n  MaxSizeOverDistance: 1.5\n"
+          "  MinSize: None");
   REQUIRE(dynamic_cast<const RefineByOrbitDistance*>(created.get()) != nullptr);
   const auto criterion = serialize_and_deserialize(
       dynamic_cast<const RefineByOrbitDistance&>(*created));
   // r in [8, 12], cos(theta) in [0.25, 0.5]: h / D = 1.859 (r), 1.000 (theta)
   CHECK(evaluate(criterion, eccentric_orbit(), lattice({4., 20.}, {-0.5, 0.5}),
                  element({{2, 2}}, {{1, 3}})) == std::array{S, N});
+  // r in [8, 12], cos(theta) in [0, 0.25]: on the segment, which starts at
+  // r_min = 8.33, with h = 4 (r) and 2.08 (theta) at the nearest point
+  // (8.33, 0)
+  CHECK(evaluate(criterion, eccentric_orbit(), lattice({4., 20.}, {-0.5, 0.5}),
+                 element({{2, 2}}, {{1, 2}})) == std::array{S, S});
+  const auto created_with_min_size =
+      TestHelpers::test_creation<std::unique_ptr<amr::Criterion>,
+                                 Metavariables>(
+          "RefineByOrbitDistance:\n  MaxSizeOverDistance: 1.5\n"
+          "  MinSize: 3.");
+  REQUIRE(dynamic_cast<const RefineByOrbitDistance*>(
+              created_with_min_size.get()) != nullptr);
+  const auto criterion_with_min_size = serialize_and_deserialize(
+      dynamic_cast<const RefineByOrbitDistance&>(*created_with_min_size));
+  CHECK(evaluate(criterion_with_min_size, eccentric_orbit(),
+                 lattice({4., 20.}, {-0.5, 0.5}),
+                 element({{2, 2}}, {{1, 2}})) == std::array{S, N});
 }
 
 void test_errors() {
   INFO("Errors");
-  const RefineByOrbitDistance criterion{1.};
+  const RefineByOrbitDistance criterion{1., std::nullopt};
   const auto evaluate_with =
       [&criterion](
           std::unique_ptr<elliptic::analytic_data::Background> background) {
@@ -272,8 +316,16 @@ void test_errors() {
                     Catch::Matchers::ContainsSubstring("PenetratingHorizon"));
   CHECK_THROWS_WITH((TestHelpers::test_creation<std::unique_ptr<amr::Criterion>,
                                                 Metavariables>(
-                        "RefineByOrbitDistance:\n  MaxSizeOverDistance: 0.")),
-                    Catch::Matchers::ContainsSubstring("must be positive"));
+                        "RefineByOrbitDistance:\n  MaxSizeOverDistance: 0.\n"
+                        "  MinSize: None")),
+                    Catch::Matchers::ContainsSubstring(
+                        "MaxSizeOverDistance must be positive"));
+  CHECK_THROWS_WITH(
+      (TestHelpers::test_creation<std::unique_ptr<amr::Criterion>,
+                                  Metavariables>(
+          "RefineByOrbitDistance:\n  MaxSizeOverDistance: 1.\n"
+          "  MinSize: 0.")),
+      Catch::Matchers::ContainsSubstring("MinSize must be positive"));
   // The logarithmic map of the outer block is undefined at the orbit, which
   // lies beyond its singularity at r = 15
   const auto logarithmic =
@@ -281,10 +333,10 @@ void test_errors() {
               {{{Distribution::Linear, Distribution::Logarithmic},
                 {Distribution::Linear}}},
               {{{-51., 15.}, {-2.}}});
-  CHECK_THROWS_WITH(
-      RefineByOrbitDistance_detail::flags(
-          logarithmic.blocks()[1], element({{0, 0}}, {{0, 0}}, 1), 8., 12., 1.),
-      Catch::Matchers::ContainsSubstring("not finite"));
+  CHECK_THROWS_WITH(RefineByOrbitDistance_detail::flags(
+                        logarithmic.blocks()[1], element({{0, 0}}, {{0, 0}}, 1),
+                        8., 12., 1., 0.),
+                    Catch::Matchers::ContainsSubstring("not finite"));
   // The inverse map of an Inverse distribution with its singularity at r = 15,
   // between the orbit and the block, is finite at the orbit but places it
   // beyond the outer boundary of the block
@@ -294,7 +346,7 @@ void test_errors() {
       {{{-51., 15.}, {-2.}}});
   CHECK_THROWS_WITH(
       RefineByOrbitDistance_detail::flags(
-          inverse.blocks()[1], element({{0, 0}}, {{0, 0}}, 1), 8., 12., 1.),
+          inverse.blocks()[1], element({{0, 0}}, {{0, 0}}, 1), 8., 12., 1., 0.),
       Catch::Matchers::ContainsSubstring("on the wrong side"));
 }
 
@@ -305,6 +357,7 @@ SPECTRE_TEST_CASE("Unit.ScalarSelfForce.AmrCriteria.RefineByOrbitDistance",
   register_factory_classes_with_charm<Metavariables>();
   test_flags();
   test_inverse_block();
+  test_min_size();
   test_large_kappa();
   test_criterion();
   test_errors();

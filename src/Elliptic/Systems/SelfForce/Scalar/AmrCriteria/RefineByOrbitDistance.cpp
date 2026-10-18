@@ -7,6 +7,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <optional>
 #include <pup.h>
 
 #include "DataStructures/Tensor/Tensor.hpp"
@@ -22,6 +23,7 @@
 #include "Utilities/ErrorHandling/Error.hpp"
 #include "Utilities/ErrorHandling/FloatingPointExceptions.hpp"
 #include "Utilities/Gsl.hpp"
+#include "Utilities/Serialization/PupStlCpp17.hpp"
 
 namespace ScalarSelfForce::AmrCriteria {
 
@@ -47,7 +49,8 @@ std::array<amr::Flag, 2> flags(const Block<2>& block,
                                const ElementId<2>& element_id,
                                const double orbit_r_min,
                                const double orbit_r_max,
-                               const double max_size_over_distance) {
+                               const double max_size_over_distance,
+                               const double min_size) {
   const auto& map = block.stationary_map();
   // The block-logical coordinates of the ends of the orbit segment. The orbit
   // usually lies outside the block, where the inverse map is extended
@@ -105,10 +108,6 @@ std::array<amr::Flag, 2> flags(const Block<2>& block,
   const double gap_xi = std::max({0., xi_a - xi_hi, xi_lo - xi_b});
   const double gap_eta =
       std::max({0., eta_equator - eta_hi, eta_lo - eta_equator});
-  if (gap_xi == 0. and gap_eta == 0.) {
-    // The element touches the orbit segment, as in RefineAtPuncture
-    return {{amr::Flag::Split, amr::Flag::Split}};
-  }
 
   const tnsr::I<double, 2, Frame::BlockLogical> nearest{
       {std::clamp(xi_a, xi_lo, xi_hi),
@@ -119,10 +118,13 @@ std::array<amr::Flag, 2> flags(const Block<2>& block,
   const double scale_xi = std::abs(get<0, 0>(jacobian));
   const double scale_eta = get<0>(x) * std::abs(get<1, 1>(jacobian)) /
                            std::sqrt(1. - square(get<1>(x)));
+  // Elements that touch the orbit segment have zero distance, so without a
+  // minimum size they always split, as in RefineAtPuncture
   const double distance = std::hypot(scale_xi * gap_xi, scale_eta * gap_eta);
-  const auto flag = [&max_size_over_distance, &distance](const double size) {
-    return size > max_size_over_distance * distance ? amr::Flag::Split
-                                                    : amr::Flag::DoNothing;
+  const double threshold =
+      std::max(max_size_over_distance * distance, min_size);
+  const auto flag = [&threshold](const double size) {
+    return size > threshold ? amr::Flag::Split : amr::Flag::DoNothing;
   };
   return {
       {flag(scale_xi * (xi_hi - xi_lo)), flag(scale_eta * (eta_hi - eta_lo))}};
@@ -130,11 +132,16 @@ std::array<amr::Flag, 2> flags(const Block<2>& block,
 }  // namespace RefineByOrbitDistance_detail
 
 RefineByOrbitDistance::RefineByOrbitDistance(
-    const double max_size_over_distance, const Options::Context& context)
-    : max_size_over_distance_(max_size_over_distance) {
+    const double max_size_over_distance, const std::optional<double> min_size,
+    const Options::Context& context)
+    : max_size_over_distance_(max_size_over_distance), min_size_(min_size) {
   if (not(max_size_over_distance_ > 0.)) {
     PARSE_ERROR(context, "MaxSizeOverDistance must be positive, but is "
                              << max_size_over_distance_ << ".");
+  }
+  if (min_size_.has_value() and not(*min_size_ > 0.)) {
+    PARSE_ERROR(context, "MinSize must be positive or 'None', but is "
+                             << *min_size_ << ".");
   }
 }
 
@@ -163,12 +170,14 @@ std::array<amr::Flag, 2> RefineByOrbitDistance::impl(
   return RefineByOrbitDistance_detail::flags(
       domain.blocks()[element_id.block_id()], element_id,
       semi_latus_rectum / (1. + eccentricity),
-      semi_latus_rectum / (1. - eccentricity), max_size_over_distance_);
+      semi_latus_rectum / (1. - eccentricity), max_size_over_distance_,
+      min_size_.value_or(0.));
 }
 
 void RefineByOrbitDistance::pup(PUP::er& p) {
   amr::Criterion::pup(p);
   p | max_size_over_distance_;
+  p | min_size_;
 }
 
 PUP::able::PUP_ID RefineByOrbitDistance::my_PUP_ID = 0;  // NOLINT
