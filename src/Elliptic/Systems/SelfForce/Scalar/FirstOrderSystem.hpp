@@ -80,6 +80,9 @@ struct FirstOrderSystem
   using fluxes_computer = Fluxes;
   using sources_computer = Sources;
   using modify_boundary_data = ModifyBoundaryData;
+  // Weight of the complex shift of Schwarz subdomain solves, see
+  // `elliptic::dg::subdomain_operator::SubdomainOperator::shift_weights`
+  using complex_shift_weight = ComplexShiftWeight;
 
   using boundary_conditions_base =
       elliptic::BoundaryConditions::BoundaryCondition<2>;

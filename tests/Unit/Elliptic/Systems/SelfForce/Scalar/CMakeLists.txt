@@ -4,6 +4,7 @@
 set(LIBRARY "Test_ScalarSelfForce")
 
 set(LIBRARY_SOURCES
+  Test_Equations.cpp
   Test_Tags.cpp
   )
 

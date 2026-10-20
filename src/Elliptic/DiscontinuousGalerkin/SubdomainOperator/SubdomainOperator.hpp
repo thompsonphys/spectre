@@ -33,6 +33,7 @@
 #include "Elliptic/Systems/GetModifyBoundaryData.hpp"
 #include "Elliptic/Systems/GetSourcesComputer.hpp"
 #include "Elliptic/Utilities/ApplyAt.hpp"
+#include "NumericalAlgorithms/DiscontinuousGalerkin/ApplyMassMatrix.hpp"
 #include "NumericalAlgorithms/DiscontinuousGalerkin/MortarHelpers.hpp"
 #include "NumericalAlgorithms/DiscontinuousGalerkin/Tags.hpp"
 #include "NumericalAlgorithms/Spectral/Mesh.hpp"
@@ -65,6 +66,17 @@ struct make_overlap_tag_impl {
 template <typename Tag, typename Dim>
 struct make_neighbor_mortars_tag_impl {
   using type = Tags::NeighborMortars<Tag, Dim::value>;
+};
+
+// The argument tags of the system's `complex_shift_weight`, if it has one
+template <typename System>
+struct complex_shift_weight_args_tags {
+  using type = tmpl::list<>;
+};
+template <typename System>
+  requires requires { typename System::complex_shift_weight; }
+struct complex_shift_weight_args_tags<System> {
+  using type = typename System::complex_shift_weight::argument_tags;
 };
 }  // namespace detail
 
@@ -699,6 +711,115 @@ struct SubdomainOperator
             overlap_extent, direction_from_neighbor);
       }  // loop over neighbors
     }  // loop over directions
+  }
+
+  /*!
+   * \brief Weights of a complex shift of the subdomain operator, see the
+   * `ComplexShift` option of `LinearSolver::Serial::ExplicitInverse`.
+   *
+   * Sets all components of the `weights` at each point of the subdomain to the
+   * factor with which a pointwise source term enters the operator: the diagonal
+   * mass-matrix entry \f$w_k J_k\f$ (quadrature weights times the Jacobian
+   * determinant) if the DG operator is massive, and 1 otherwise. If the system
+   * defines a `complex_shift_weight` with `argument_tags` and a static
+   * `apply(gsl::not_null<Scalar<DataVector>*> weight, args...)`, the factor is
+   * multiplied by this pointwise weight. A complex shift \f$i s\f$ with these
+   * weights therefore changes the system's source term by \f$-i s\f$ times the
+   * system's weight. The `argument_tags` must be available on overlaps, as the
+   * arguments of the sources are. The `weights` must have the size of the
+   * subdomain data. Further arguments, such as overriding boundary conditions,
+   * are ignored.
+   */
+  template <typename ResultTags, typename DbTagsList, typename... Args>
+  void shift_weights(
+      const gsl::not_null<
+          LinearSolver::Schwarz::ElementCenteredSubdomainData<Dim, ResultTags>*>
+          weights,
+      const db::DataBox<DbTagsList>& box, const Args&... /*args*/) const {
+    using weight_args_tags =
+        typename detail::complex_shift_weight_args_tags<System>::type;
+    using weight_args_tags_overlap =
+        tmpl::transform<weight_args_tags, make_overlap_tag>;
+    using det_jacobian_tag =
+        domain::Tags::DetJacobian<Frame::ElementLogical, Frame::Inertial>;
+    const auto get_items = [](const auto&... args) {
+      return std::forward_as_tuple(args...);
+    };
+    const bool massive = db::get<elliptic::dg::Tags::Massive>(box);
+    // The pointwise factor on an element of the subdomain
+    const auto element_weight = [&massive](
+                                    const Mesh<Dim>& mesh,
+                                    const Scalar<DataVector>& det_jacobian,
+                                    const auto& weight_args) {
+      Scalar<DataVector> weight{mesh.number_of_grid_points(), 1.};
+      if constexpr (requires { typename System::complex_shift_weight; }) {
+        std::apply(
+            [&weight](const auto&... args) {
+              System::complex_shift_weight::apply(make_not_null(&weight),
+                                                  args...);
+            },
+            weight_args);
+      } else {
+        (void)weight_args;
+      }
+      if (massive) {
+        get(weight) *= get(det_jacobian);
+        ::dg::apply_mass_matrix(make_not_null(&get(weight)), mesh);
+      }
+      return weight;
+    };
+    // Sets all components of the `vars` to the `weight`
+    const auto set_weights = [](const auto vars,
+                                const Scalar<DataVector>& weight) {
+      const size_t num_points = get(weight).size();
+      ASSERT(vars->number_of_grid_points() == num_points,
+             "The shift weights have " << vars->number_of_grid_points()
+                                       << " points, but the element has "
+                                       << num_points << ".");
+      constexpr size_t num_components =
+          std::decay_t<decltype(*vars)>::number_of_independent_components;
+      for (size_t component = 0; component < num_components; ++component) {
+        for (size_t k = 0; k < num_points; ++k) {
+          vars->data()[component * num_points + k] = get(weight)[k];
+        }
+      }
+    };
+
+    // Central element
+    set_weights(make_not_null(&weights->element_data),
+                element_weight(db::get<domain::Tags::Mesh<Dim>>(box),
+                               db::get<det_jacobian_tag>(box),
+                               db::apply<weight_args_tags>(get_items, box)));
+    // Overlaps with neighbors, which hold the neighbor's weights restricted to
+    // the overlap
+    const auto& central_element = db::get<domain::Tags::Element<Dim>>(box);
+    const auto& [all_overlap_extents, all_neighbor_meshes,
+                 all_neighbor_det_jacobians] =
+        db::apply<tmpl::transform<
+            tmpl::list<Tags::ExtrudingExtent, domain::Tags::Mesh<Dim>,
+                       det_jacobian_tag>,
+            make_overlap_tag>>(get_items, box);
+    for (auto& [overlap_id, overlap_weights] : weights->overlap_data) {
+      const size_t overlap_extent = all_overlap_extents.at(overlap_id);
+      if (UNLIKELY(overlap_extent == 0)) {
+        continue;
+      }
+      const auto& direction = overlap_id.direction();
+      const auto direction_from_neighbor =
+          central_element.neighbors().at(direction).orientation(
+              overlap_id.id())(direction.opposite());
+      const auto& neighbor_mesh = all_neighbor_meshes.at(overlap_id);
+      set_weights(
+          make_not_null(&overlap_weights),
+          LinearSolver::Schwarz::data_on_overlap(
+              element_weight(neighbor_mesh,
+                             all_neighbor_det_jacobians.at(overlap_id),
+                             elliptic::util::apply_at<weight_args_tags_overlap,
+                                                      args_tags_from_center>(
+                                 get_items, box, overlap_id)),
+              neighbor_mesh.extents(), overlap_extent,
+              direction_from_neighbor));
+    }
   }
 
   // NOLINTNEXTLINE(google-runtime-references)

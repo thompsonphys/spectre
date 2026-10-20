@@ -393,6 +393,112 @@ struct TestSubdomainOperatorMatrix {
     const Approx custom_approx = Approx::custom().epsilon(1.e-8).scale(1.0);
     CHECK_ITERABLE_CUSTOM_APPROX(
         result_buffer, expected_operator_applied_to_data, custom_approx);
+
+    // The shift weights of the complex shift in
+    // `LinearSolver::Serial::ExplicitInverse`. For the scalar self-force system
+    // they are the mass matrix times max(0, -Re beta). Beta enters the operator
+    // only through the pointwise source term, so with beta = -g(x) < 0, a
+    // change of beta by delta * g(x) must change the operator matrix by delta
+    // times the shift weights on the diagonal and leave all other entries
+    // unchanged. Since g varies in space, this also checks that the weights on
+    // overlaps belong to the right points.
+    using system = typename SubdomainOperator::system;
+    if constexpr (std::is_same_v<system, ScalarSelfForce::FirstOrderSystem>) {
+      using background_tag =
+          ::Tags::Variables<typename system::background_fields>;
+      using overlaps_background_tag =
+          ::LinearSolver::Schwarz::Tags::Overlaps<background_tag, Dim,
+                                                  DummyOptionsGroup>;
+      using coords_tag = domain::Tags::Coordinates<Dim, Frame::Inertial>;
+      using overlaps_coords_tag =
+          ::LinearSolver::Schwarz::Tags::Overlaps<coords_tag, Dim,
+                                                  DummyOptionsGroup>;
+      const auto original_background = db::get<background_tag>(box);
+      const auto original_overlaps_background =
+          db::get<overlaps_background_tag>(box);
+      // Positive on the domain of the test, [-50, 350] x [-1, 1]
+      const auto g = [](const tnsr::I<DataVector, Dim>& x) -> DataVector {
+        return 2. + 0.002 * (get<0>(x) + 50.) + 0.3 * get<1>(x);
+      };
+      const auto set_background = [&box](const auto& central,
+                                         const auto& overlaps) {
+        db::mutate<background_tag, overlaps_background_tag>(
+            [&central, &overlaps](const auto local_central,
+                                  const auto local_overlaps) {
+              *local_central = central;
+              *local_overlaps = overlaps;
+            },
+            make_not_null(&box));
+      };
+      // Sets beta = factor * g(x)
+      const auto set_beta = [&box, &original_background,
+                             &original_overlaps_background, &set_background,
+                             &g](const double factor) {
+        const auto set_real = [](const auto vars, const DataVector& values) {
+          auto& beta = get(get<ScalarSelfForce::Tags::Beta>(*vars));
+          REQUIRE(beta.size() == values.size());
+          for (size_t k = 0; k < values.size(); ++k) {
+            beta[k] = std::complex<double>{values[k], 0.};
+          }
+        };
+        auto central = original_background;
+        set_real(make_not_null(&central), factor * g(db::get<coords_tag>(box)));
+        auto overlaps = original_overlaps_background;
+        const auto& overlaps_coords = db::get<overlaps_coords_tag>(box);
+        for (auto& [overlap_id, overlap_background] : overlaps) {
+          set_real(make_not_null(&overlap_background),
+                   factor * g(overlaps_coords.at(overlap_id)));
+        }
+        set_background(central, overlaps);
+      };
+      const auto build_operator_matrix = [&box, &subdomain_operator,
+                                          &operand_buffer, &result_buffer,
+                                          &operator_size]() {
+        blaze::DynamicMatrix<ValueType, blaze::columnMajor> matrix{
+            operator_size, operator_size};
+        ::LinearSolver::Serial::build_matrix(
+            make_not_null(&matrix), make_not_null(&operand_buffer),
+            make_not_null(&result_buffer), subdomain_operator,
+            std::forward_as_tuple(box));
+        return matrix;
+      };
+      auto weights = make_with_value<
+          typename SubdomainOperatorAppliedToDataTag<Dim, Fields>::type>(
+          subdomain_data, 0.);
+      {
+        INFO("No shift where Re beta > 0");
+        subdomain_operator.shift_weights(make_not_null(&weights), box);
+        for (const auto& weight : weights) {
+          CHECK(weight == ValueType{0.});
+        }
+      }
+      {
+        INFO("Shift weights are the mass times -Re beta where Re beta < 0");
+        const double delta = 0.25;
+        set_beta(-1.);
+        subdomain_operator.shift_weights(make_not_null(&weights), box);
+        const auto matrix = build_operator_matrix();
+        set_beta(-1. + delta);
+        const auto shifted_matrix = build_operator_matrix();
+        const double scale = max(abs(matrix));
+        const Approx matrix_approx =
+            Approx::custom().epsilon(1.e-12).scale(scale);
+        size_t i = 0;
+        for (const auto& weight : weights) {
+          CHECK(real(weight) > 0.);
+          for (size_t j = 0; j < operator_size; ++j) {
+            const ValueType expected_difference =
+                i == j ? delta * weight : ValueType{0.};
+            const ValueType difference = shifted_matrix(i, j) - matrix(i, j);
+            CHECK(real(difference) == matrix_approx(real(expected_difference)));
+            CHECK(imag(difference) == matrix_approx(imag(expected_difference)));
+          }
+          ++i;
+        }
+        CHECK(i == operator_size);
+      }
+      set_background(original_background, original_overlaps_background);
+    }
     return {Parallel::AlgorithmExecution::Continue, std::nullopt};
   }
 };
@@ -1172,5 +1278,9 @@ SPECTRE_TEST_CASE("Unit.Elliptic.DG.SubdomainOperator", "[Unit][Elliptic]") {
       test_subdomain_operator<system>(domain_creator, true, quadrature, false,
                                       std::nullopt);
     }
+    // Non-massive operator, where the shift weights are -Re beta without the
+    // mass
+    test_subdomain_operator<system>(domain_creator, false,
+                                    Spectral::Quadrature::Gauss);
   }
 }

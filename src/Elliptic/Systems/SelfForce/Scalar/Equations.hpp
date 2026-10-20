@@ -82,6 +82,28 @@ struct Sources {
 };
 
 /*!
+ * \brief Pointwise weight $\max(0, -\mathrm{Re}\,\beta)$ of the complex shift
+ * of Schwarz subdomain solves.
+ *
+ * Where $\mathrm{Re}\,\beta < 0$ the operator is indefinite, as a Helmholtz
+ * operator with $\beta \approx -\omega^2$. A complex shift proportional to this
+ * weight replaces $\beta$ by $\beta - i \epsilon \max(0, -\mathrm{Re}\,\beta)$
+ * in the subdomain solves (see
+ * `elliptic::dg::subdomain_operator::SubdomainOperator::shift_weights` and the
+ * `ComplexShift` option of `LinearSolver::Serial::ExplicitInverse`), which
+ * damps the propagating modes there as a shifted-Laplacian preconditioner does,
+ * and leaves the subdomain problems unchanged where $\mathrm{Re}\,\beta \geq
+ * 0$.
+ *
+ * \see ScalarSelfForce::FirstOrderSystem
+ */
+struct ComplexShiftWeight {
+  using argument_tags = tmpl::list<Tags::Beta>;
+  static void apply(gsl::not_null<Scalar<DataVector>*> weight,
+                    const Scalar<ComplexDataVector>& beta);
+};
+
+/*!
  * \brief Modifies the received boundary data to account for jump conditions.
  *
  * \par Worldtube jump conditions

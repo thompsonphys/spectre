@@ -3,8 +3,11 @@
 
 #include "Framework/TestingFramework.hpp"
 
+#include <algorithm>
 #include <blaze/math/DynamicMatrix.h>
 #include <blaze/math/DynamicVector.h>
+#include <complex>
+#include <cstddef>
 #include <functional>
 #include <utility>
 
@@ -30,6 +33,48 @@ namespace {
 template <typename DataType>
 struct ScalarFieldTag : db::SimpleTag {
   using type = Scalar<DataType>;
+};
+
+template <typename DataType>
+struct VectorFieldTag : db::SimpleTag {
+  using type = tnsr::I<DataType, 2>;
+};
+
+// Applies a dense matrix to the subdomain data in its iteration order, times a
+// `scale` that is passed as operator argument. Provides shift weights that
+// differ between components, points and overlaps.
+template <typename SubdomainData>
+struct OperatorWithShiftWeights {
+  blaze::DynamicMatrix<std::complex<double>> matrix;
+
+  void operator()(const gsl::not_null<SubdomainData*> result,
+                  const SubdomainData& operand, const double scale) const {
+    blaze::DynamicVector<std::complex<double>> contiguous_operand(
+        operand.size());
+    std::copy(operand.begin(), operand.end(), contiguous_operand.begin());
+    const blaze::DynamicVector<std::complex<double>> contiguous_result =
+        scale * matrix * contiguous_operand;
+    std::copy(contiguous_result.begin(), contiguous_result.end(),
+              result->begin());
+  }
+
+  void shift_weights(const gsl::not_null<SubdomainData*> weights,
+                     const double scale) const {
+    const auto set_weights = [&scale](const auto vars, const double offset) {
+      auto& field = get<VectorFieldTag<ComplexDataVector>>(*vars);
+      for (size_t d = 0; d < 2; ++d) {
+        for (size_t i = 0; i < field.get(d).size(); ++i) {
+          field.get(d)[i] = scale * (offset + 0.1 * static_cast<double>(i) +
+                                     0.01 * static_cast<double>(d));
+        }
+      }
+    };
+    set_weights(make_not_null(&weights->element_data), 1.);
+    for (auto& [overlap_id, overlap_weights] : weights->overlap_data) {
+      set_weights(make_not_null(&overlap_weights),
+                  overlap_id.direction().side() == Side::Lower ? 2. : 3.);
+    }
+  }
 };
 }  // namespace
 
@@ -162,6 +207,72 @@ SPECTRE_TEST_CASE("Unit.LinearSolver.Serial.ExplicitInverse",
                            expected_solution.element_data);
     CHECK_VARIABLES_APPROX(solution.overlap_data.at(overlap_id),
                            expected_solution.overlap_data.at(overlap_id));
+  }
+  {
+    INFO("Complex shift weighted by the operator's shift weights");
+    using SubdomainData = ::LinearSolver::Schwarz::ElementCenteredSubdomainData<
+        1, tmpl::list<VectorFieldTag<ComplexDataVector>>>;
+    const ::LinearSolver::Schwarz::OverlapId<1> lower_overlap_id{
+        Direction<1>::lower_xi(), ElementId<1>{0}};
+    const ::LinearSolver::Schwarz::OverlapId<1> upper_overlap_id{
+        Direction<1>::upper_xi(), ElementId<1>{1}};
+    SubdomainData source{3};
+    // Insert the overlaps out of their sorted order
+    source.overlap_data.emplace(upper_overlap_id,
+                                typename SubdomainData::OverlapData{1});
+    source.overlap_data.emplace(lower_overlap_id,
+                                typename SubdomainData::OverlapData{2});
+    const size_t size = source.size();
+    REQUIRE(size == 12);
+    {
+      double value = 1.;
+      for (auto& entry : source) {
+        entry = std::complex<double>(value, -0.5 * value);
+        value += 1.;
+      }
+    }
+    blaze::DynamicMatrix<std::complex<double>> matrix(size, size);
+    for (size_t i = 0; i < size; ++i) {
+      for (size_t j = 0; j < size; ++j) {
+        matrix(i, j) = std::complex<double>(
+            1. / (1. + static_cast<double>(i + j)),
+            i == j ? 2. : 0.1 * static_cast<double>(i) - 0.2);
+      }
+    }
+    const double scale = 1.5;
+    const OperatorWithShiftWeights<SubdomainData> linear_operator{matrix};
+    const double complex_shift = 0.3;
+    auto solution = make_with_value<SubdomainData>(source, 0.);
+    {
+      INFO("The weights multiply the shift");
+      const ExplicitInverse<std::complex<double>> solver{std::nullopt,
+                                                         complex_shift};
+      solver.solve(make_not_null(&solution), linear_operator, source,
+                   std::forward_as_tuple(scale));
+      // The diagonal entry i belongs to the i-th entry of the subdomain data
+      auto weights = make_with_value<SubdomainData>(source, 0.);
+      linear_operator.shift_weights(make_not_null(&weights), scale);
+      blaze::DynamicMatrix<std::complex<double>> expected_matrix =
+          scale * matrix;
+      size_t i = 0;
+      for (const auto& weight : weights) {
+        expected_matrix(i, i) -=
+            std::complex<double>(0., complex_shift) * weight;
+        ++i;
+      }
+      CHECK_ITERABLE_APPROX(solver.matrix_representation(),
+                            blaze::inv(expected_matrix));
+    }
+    {
+      INFO("No shift");
+      const ExplicitInverse<std::complex<double>> solver{std::nullopt, 0.};
+      solver.solve(make_not_null(&solution), linear_operator, source,
+                   std::forward_as_tuple(scale));
+      CHECK_ITERABLE_APPROX(
+          solver.matrix_representation(),
+          blaze::inv(
+              blaze::DynamicMatrix<std::complex<double>>(scale * matrix)));
+    }
   }
 }
 

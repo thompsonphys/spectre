@@ -67,6 +67,11 @@ void Sources::apply(
   add_sources(scalar_equation, beta, gamma, field, field_gradient);
 }
 
+void ComplexShiftWeight::apply(const gsl::not_null<Scalar<DataVector>*> weight,
+                               const Scalar<ComplexDataVector>& beta) {
+  get(*weight) = max(-real(get(beta)), 0.);
+}
+
 void ModifyBoundaryData::apply(
     const gsl::not_null<Scalar<ComplexDataVector>*> field,
     const gsl::not_null<Scalar<ComplexDataVector>*> n_dot_flux,
@@ -113,7 +118,8 @@ void ModifyBoundaryData::apply_linearized(
   const double m_mode_number = orbit.m_mode_number();
   const double n_mode_number = orbit.n_mode_number();
   get(*n_dot_flux_remote) -=
-      std::complex<double>(0.0, m_mode_number * Omega_phi + n_mode_number * Omega_r) *
+      std::complex<double>(
+          0.0, m_mode_number * Omega_phi + n_mode_number * Omega_r) *
       (get(field_local) + get(*field_remote)) * 0.5;
 }
 

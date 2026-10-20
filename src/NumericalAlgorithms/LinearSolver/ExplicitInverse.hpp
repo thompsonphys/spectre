@@ -4,10 +4,12 @@
 #pragma once
 
 #include <algorithm>
+#include <complex>
 #include <cstddef>
 #include <fstream>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #include "DataStructures/DataBox/DataBox.hpp"
@@ -19,6 +21,7 @@
 #include "Options/Auto.hpp"
 #include "Options/String.hpp"
 #include "Parallel/Tags/ArrayIndex.hpp"
+#include "Utilities/ErrorHandling/Assert.hpp"
 #include "Utilities/ErrorHandling/Error.hpp"
 #include "Utilities/Gsl.hpp"
 #include "Utilities/MakeWithValue.hpp"
@@ -73,6 +76,14 @@ struct ExplicitInverse {
  *   with the number of grid points per dimension. Therefore, make sure to
  *   distribute the elements on a sufficient number of nodes to meet the memory
  *   requirements.
+ * - For complex-valued operators the `ComplexShift` option subtracts
+ *   \f$i s w_k\f$ from the diagonal entries of the matrix before it is
+ *   inverted, so the solver inverts a shifted operator. If the linear operator
+ *   has a member function `shift_weights(weights, operator_args...)` that sets
+ *   the `weights` (of the `SourceType`) to \f$w_k\f$, these weights are used
+ *   and the diagonal entry \f$k\f$ belongs to the \f$k\f$-th entry of the
+ *   `weights` in their iteration order. Otherwise \f$w_k = 1\f$. The matrix
+ *   written by `WriteMatrixToFile` is the unshifted one.
  * - This linear solver can be `reset()` when the operator changes (e.g. in each
  *   nonlinear-solver iteration). However, when using this solver as
  *   preconditioner it can be advantageous to avoid the reset and the
@@ -101,9 +112,10 @@ class ExplicitInverse : public LinearSolver<LinearSolverRegistrars> {
   struct ComplexShift {
     using type = double;
     static constexpr Options::String help =
-        "Subtracts i*ComplexShift from the operator. "
-        "This can help dampen high-frequency modes when preconditioning "
-        "complex-valued problems.";
+        "Subtracts i*ComplexShift*w from the diagonal of the operator, where w "
+        "are the shift weights of the operator if it provides them and 1 "
+        "otherwise. This can help dampen high-frequency modes when "
+        "preconditioning complex-valued problems.";
   };
 
   using options = tmpl::flatten<tmpl::list<
@@ -246,10 +258,35 @@ ExplicitInverse<ValueType, LinearSolverRegistrars>::solve(
                                 ".txt");
       write_csv(matrix_file, inverse_, " ");
     }
-    // Apply complex shift
+    // Apply complex shift, weighted by the operator's shift weights if it
+    // provides them
     if constexpr (std::is_same_v<ValueType, std::complex<double>>) {
-      for (size_t i = 0; i < size_; ++i) {
-        inverse_(i, i) -= std::complex<double>(0.0, complex_shift_);
+      if (complex_shift_ != 0.) {
+        const std::complex<double> shift{0.0, complex_shift_};
+        if constexpr (requires {
+                        std::declval<const LinearOperator&>().shift_weights(
+                            std::declval<gsl::not_null<SourceType*>>(),
+                            std::declval<const OperatorArgs&>()...);
+                      }) {
+          auto weights = make_with_value<SourceType>(used_for_size, 0.);
+          std::apply(
+              [&linear_operator, &weights](const auto&... args) {
+                linear_operator.shift_weights(make_not_null(&weights), args...);
+              },
+              operator_args);
+          size_t i = 0;
+          for (const auto& weight : weights) {
+            inverse_(i, i) -= shift * weight;
+            ++i;
+          }
+          ASSERT(i == size_, "The shift weights have "
+                                 << i << " entries, but the operator has size "
+                                 << size_ << ".");
+        } else {
+          for (size_t i = 0; i < size_; ++i) {
+            inverse_(i, i) -= shift;
+          }
+        }
       }
     }
     // Directly invert the matrix
