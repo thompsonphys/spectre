@@ -119,6 +119,47 @@ double relative_truncation_error(const DataVector& power_monitor,
   return std::pow(10.0, weighted_average) / leading_term;
 }
 
+double relative_truncation_error_parity_aware(const DataVector& power_monitor,
+                                              const size_t num_modes_to_use) {
+  double result = relative_truncation_error(power_monitor, num_modes_to_use);
+  // A parity needs at least two modes
+  if (num_modes_to_use < 3) {
+    return result;
+  }
+  const size_t last_index = num_modes_to_use - 1;
+  const double max_mode = blaze::max(power_monitor);
+  const double cutoff =
+      100. * std::numeric_limits<double>::epsilon() * max_mode;
+  const double leading_term = std::max(power_monitor[0], power_monitor[1]);
+  for (size_t parity = 0; parity < 2; ++parity) {
+    const size_t last_index_of_parity =
+        last_index % 2 == parity ? last_index : last_index - 1;
+    // This parity has fewer than two modes, or it is represented exactly (or
+    // is zero by symmetry)
+    if (last_index_of_parity < parity + 2 or
+        power_monitor[last_index_of_parity] < cutoff) {
+      continue;
+    }
+    // Same weights as in `relative_truncation_error`, applied to the modes of
+    // this parity only
+    double weighted_average = 0.0;
+    double weight_sum = 0.0;
+    for (size_t index = parity; index <= last_index_of_parity; index += 2) {
+      const double mode = power_monitor[index];
+      if (mode < cutoff) {
+        continue;
+      }
+      const double weight_value =
+          exp(-square(static_cast<double>(last_index - index) - 0.5));
+      weighted_average += weight_value * log10(mode);
+      weight_sum += weight_value;
+    }
+    weighted_average /= weight_sum;
+    result = std::max(result, std::pow(10.0, weighted_average) / leading_term);
+  }
+  return result;
+}
+
 template <typename VectorType, size_t Dim>
 std::array<double, Dim> relative_truncation_error(
     const VectorType& tensor_component, const Mesh<Dim>& mesh) {

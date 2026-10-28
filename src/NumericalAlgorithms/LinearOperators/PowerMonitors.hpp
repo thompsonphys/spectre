@@ -87,6 +87,31 @@ double relative_truncation_error(const DataVector& power_monitor,
 /// @}
 
 /*!
+ * \ingroup SpectralGroup
+ * \brief Relative truncation error that also resolves functions of definite
+ * parity
+ *
+ * For a function that is even or odd about the center of the element in the
+ * logical direction of the power monitor, the modes of the other parity are
+ * zero up to round-off or solver noise. When this noise lies above the cutoff
+ * of `relative_truncation_error`, it enters the weighted average of the highest
+ * modes and the estimate falls far below the true truncation error.
+ *
+ * This function returns the largest of `relative_truncation_error` and the
+ * estimates from the even-index and from the odd-index modes alone. Each of the
+ * two subsequences is averaged with the weights \f$w_j\f$ of
+ * `relative_truncation_error` at its own indices \f$j\f$ and divided by the
+ * same leading term \f$\max(P_0, P_1)\f$. A subsequence at noise level
+ * therefore gives a noise-level estimate, and a subsequence whose highest mode
+ * lies below the cutoff is treated as represented exactly. A subsequence with
+ * fewer than two modes is skipped, so for fewer than three modes the result
+ * equals `relative_truncation_error`. For a function without definite parity
+ * the result can exceed `relative_truncation_error`, by up to about one mode.
+ */
+double relative_truncation_error_parity_aware(const DataVector& power_monitor,
+                                              size_t num_modes_to_use);
+
+/*!
  * \brief The relative truncation error in each logical direction of the grid
  *
  * This overload is intended for visualization purposes only. It takes a tensor

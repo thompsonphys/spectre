@@ -22,7 +22,7 @@ void max_over_components(
     const gsl::not_null<std::array<DataVector, Dim>*> power_monitors_buffer,
     const ValueType& tensor_component, const Mesh<Dim>& mesh,
     const double target_abs_truncation_error,
-    const double target_rel_truncation_error) {
+    const double target_rel_truncation_error, const bool parity_aware) {
   // We take the highest-priority refinement flag in each dimension, so if any
   // tensor component has a truncation error above the target, the element will
   // increase p refinement in that dimension. And only if all tensor components
@@ -30,6 +30,14 @@ void max_over_components(
   // decrease p refinement in that dimension.
   PowerMonitors::power_monitors(power_monitors_buffer, tensor_component, mesh);
   const double umax = max(abs(tensor_component));
+  const auto relative_truncation_error =
+      [parity_aware](const DataVector& modes, const size_t num_modes_to_use) {
+        return parity_aware
+                   ? PowerMonitors::relative_truncation_error_parity_aware(
+                         modes, num_modes_to_use)
+                   : PowerMonitors::relative_truncation_error(modes,
+                                                              num_modes_to_use);
+      };
   for (size_t d = 0; d < Dim; ++d) {
     // Skip this dimension if we have already decided to refine it
     if (gsl::at(*result, d) == Flag::IncreaseResolution) {
@@ -44,7 +52,7 @@ void max_over_components(
     }
     // Increase p refinement if the truncation error exceeds the target
     const double truncation_error =
-        umax * PowerMonitors::relative_truncation_error(modes, modes.size());
+        umax * relative_truncation_error(modes, modes.size());
     if (truncation_error >
         target_abs_truncation_error + umax * target_rel_truncation_error) {
       gsl::at(*result, d) = Flag::IncreaseResolution;
@@ -63,8 +71,7 @@ void max_over_components(
       // this resolution (or increase resolution if another tensor component
       // requested that).
       const double truncation_error_coarsened =
-          umax *
-          PowerMonitors::relative_truncation_error(modes, modes.size() - 1);
+          umax * relative_truncation_error(modes, modes.size() - 1);
       if (truncation_error_coarsened <=
           target_abs_truncation_error + umax * target_rel_truncation_error) {
         gsl::at(*result, d) = Flag::DecreaseResolution;
@@ -80,13 +87,14 @@ void max_over_components(
 #define DTYPE(data) BOOST_PP_TUPLE_ELEM(0, data)
 #define DIM(data) BOOST_PP_TUPLE_ELEM(1, data)
 
-#define INSTANTIATION(_, data)                                           \
-  template void max_over_components(                                     \
-      gsl::not_null<std::array<Flag, DIM(data)>*> result,                \
-      const gsl::not_null<std::array<DataVector, DIM(data)>*>            \
-          power_monitors_buffer,                                         \
-      const DTYPE(data) & tensor_component, const Mesh<DIM(data)>& mesh, \
-      double target_abs_truncation_error, double target_rel_truncation_error);
+#define INSTANTIATION(_, data)                                                \
+  template void max_over_components(                                          \
+      gsl::not_null<std::array<Flag, DIM(data)>*> result,                     \
+      const gsl::not_null<std::array<DataVector, DIM(data)>*>                 \
+          power_monitors_buffer,                                              \
+      const DTYPE(data) & tensor_component, const Mesh<DIM(data)>& mesh,      \
+      double target_abs_truncation_error, double target_rel_truncation_error, \
+      bool parity_aware);
 
 GENERATE_INSTANTIATIONS(INSTANTIATION, (DataVector, ComplexDataVector),
                         (1, 2, 3))

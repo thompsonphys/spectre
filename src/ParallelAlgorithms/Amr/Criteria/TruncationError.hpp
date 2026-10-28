@@ -47,7 +47,8 @@ void max_over_components(
     gsl::not_null<std::array<Flag, Dim>*> result,
     const gsl::not_null<std::array<DataVector, Dim>*> power_monitors_buffer,
     const ValueType& tensor_component, const Mesh<Dim>& mesh,
-    double target_abs_truncation_error, double target_rel_truncation_error);
+    double target_abs_truncation_error, double target_rel_truncation_error,
+    bool parity_aware);
 }  // namespace TruncationError_detail
 
 /*!
@@ -59,7 +60,9 @@ void max_over_components(
  *   removed, the element will be p-coarsened.
  *
  * For details on how the truncation error is computed see
- * `PowerMonitors::truncation_error`.
+ * `PowerMonitors::relative_truncation_error`. With the option `ParityAware` the
+ * estimate is `PowerMonitors::relative_truncation_error_parity_aware`, which
+ * also detects an under-resolved field of definite parity.
  *
  * \tparam Dim Spatial dimension of the grid
  * \tparam TensorTags List of tags of the tensors to be monitored
@@ -87,9 +90,19 @@ class TruncationError : public Criterion {
     static constexpr Options::String help = {
         "The relative target truncation error."};
   };
+  struct ParityAware {
+    using type = bool;
+    static constexpr Options::String help = {
+        "Also estimate the truncation error from the even-index and from the "
+        "odd-index modes alone, and use the largest estimate. Set this to "
+        "true when a monitored field can be even or odd about the center of "
+        "an element. Then the modes of the other parity are only noise and "
+        "make the default estimate too small. On other elements the estimate "
+        "can grow by up to about one mode."};
+  };
 
   using options = tmpl::list<VariablesToMonitor, AbsoluteTargetTruncationError,
-                             RelativeTargetTruncationError>;
+                             RelativeTargetTruncationError, ParityAware>;
 
   static constexpr Options::String help = {
       "Refine the grid towards the target truncation error"};
@@ -98,7 +111,7 @@ class TruncationError : public Criterion {
 
   TruncationError(std::vector<std::string> vars_to_monitor,
                   double target_abs_truncation_error,
-                  double target_rel_truncation_error,
+                  double target_rel_truncation_error, bool parity_aware,
                   const Options::Context& context = {});
 
   /// \cond
@@ -126,6 +139,7 @@ class TruncationError : public Criterion {
   std::vector<std::string> vars_to_monitor_{};
   double target_abs_truncation_error_{};
   double target_rel_truncation_error_{};
+  bool parity_aware_{false};
 };
 
 // Out-of-line definitions
@@ -135,10 +149,12 @@ template <size_t Dim, typename TensorTags>
 TruncationError<Dim, TensorTags>::TruncationError(
     std::vector<std::string> vars_to_monitor,
     const double target_abs_truncation_error,
-    const double target_rel_truncation_error, const Options::Context& context)
+    const double target_rel_truncation_error, const bool parity_aware,
+    const Options::Context& context)
     : vars_to_monitor_(std::move(vars_to_monitor)),
       target_abs_truncation_error_(target_abs_truncation_error),
-      target_rel_truncation_error_(target_rel_truncation_error) {
+      target_rel_truncation_error_(target_rel_truncation_error),
+      parity_aware_(parity_aware) {
   db::validate_selection<TensorTags>(vars_to_monitor_, context);
 }
 
@@ -173,7 +189,7 @@ std::array<Flag, Dim> TruncationError<Dim, TensorTags>::operator()(
           TruncationError_detail::max_over_components(
               make_not_null(&result), make_not_null(&power_monitors_buffer),
               tensor_component, mesh, target_abs_truncation_error_,
-              target_rel_truncation_error_);
+              target_rel_truncation_error_, parity_aware_);
         }
       });
   return result;
@@ -184,6 +200,7 @@ void TruncationError<Dim, TensorTags>::pup(PUP::er& p) {
   p | vars_to_monitor_;
   p | target_abs_truncation_error_;
   p | target_rel_truncation_error_;
+  p | parity_aware_;
 }
 
 template <size_t Dim, typename TensorTags>

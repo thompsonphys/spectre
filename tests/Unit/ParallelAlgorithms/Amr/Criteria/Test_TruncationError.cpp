@@ -52,14 +52,15 @@ void test() {
   static constexpr size_t Dim = 2;
   register_factory_classes_with_charm<Metavariables<DataType, Dim>>();
   const TruncationError<Dim, tmpl::list<TestVector<DataType, Dim>>> criterion{
-      {"TestVector"}, 1.e-3, 0.0};
+      {"TestVector"}, 1.e-3, 0.0, false};
   const auto criterion_from_option_string = TestHelpers::test_factory_creation<
       amr::Criterion,
       TruncationError<Dim, tmpl::list<TestVector<DataType, Dim>>>>(
       "TruncationError:\n"
       "  VariablesToMonitor: [TestVector]\n"
       "  AbsoluteTarget: 1.e-3\n"
-      "  RelativeTarget: 0.0\n");
+      "  RelativeTarget: 0.0\n"
+      "  ParityAware: False\n");
 
   const auto evaluate_criterion = [&](const size_t num_points,
                                       const bool zero_data = false) {

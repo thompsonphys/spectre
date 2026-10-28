@@ -338,6 +338,7 @@ Amr:
         VariablesToMonitor: [Psi]
         AbsoluteTarget: 1.e-6
         RelativeTarget: 1.0
+        ParityAware: False
   Policies:
     EnforceTwoToOneBalanceInNormalDirection: true
     Isotropy: Anisotropic
