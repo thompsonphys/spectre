@@ -208,11 +208,26 @@ class EccentricOrbit : public SelfForceBackground,
         "every sample.";
     using type = Options::Auto<size_t>;
   };
+  struct SinThetaPower {
+    static constexpr Options::String help =
+        "Power s of sin(theta) divided out of the field: the solver solves "
+        "for u = psi / sin(theta)^s. 'Auto' uses s = |m|, which removes the "
+        "term m^2 / sin(theta)^2 from the operator. Otherwise s must lie in "
+        "[0, |m|] and have the parity of m. Then u behaves like "
+        "sin(theta)^(|m| - s) at the poles and the other solution is "
+        "unbounded there, so the poles need no boundary condition. A small "
+        "s, e.g. |m| mod 2, avoids the ill-conditioning of the variable with "
+        "s = |m| at large |m|, at the cost of more angular resolution, "
+        "because u then contains a polynomial of degree |m| - s in "
+        "cos(theta). An s other than |m| needs grid points away from the "
+        "poles (Gauss quadrature in theta).";
+    using type = Options::Auto<int>;
+  };
   using options =
       tmpl::list<BlackHoleMass, BlackHoleSpin, SemiLatusRectum, Eccentricity,
                  MModeNumber, NModeNumber, HyperboloidalSlicingTransitions,
                  PenetratingHorizon, ImposeEquatorialSymmetry, TimePoints,
-                 PhiPoints>;
+                 PhiPoints, SinThetaPower>;
   static constexpr Options::String help =
       "Quasicircular orbit of a scalar point charge in Kerr spacetime";
 
@@ -234,7 +249,8 @@ class EccentricOrbit : public SelfForceBackground,
       double eccentricity, int m_mode_number, int n_mode_number,
       std::optional<std::array<double, 4>> hyperboloidal_slicing_transitions,
       bool penetrating_horizon, bool impose_equatorial_symmetry,
-      size_t time_points, std::optional<size_t> phi_points);
+      size_t time_points, std::optional<size_t> phi_points,
+      std::optional<int> sin_theta_power = std::nullopt);
 
   explicit EccentricOrbit(CkMigrateMessage* m);
   using PUP::able::register_constructor;
@@ -252,6 +268,9 @@ class EccentricOrbit : public SelfForceBackground,
   int n_mode_number() const override { return n_mode_number_ ; }
   size_t time_points() const { return time_points_; }
   std::optional<size_t> phi_points() const { return phi_points_; }
+  /// The power \f$s\f$ of the field variable
+  /// \f$u = \psi / \sin^s\theta\f$ (option `SinThetaPower`)
+  int sin_theta_power() const { return sin_theta_power_; }
   std::optional<std::array<double, 4>> hyperboloidal_slicing_transitions()
       const {
     return hyperboloidal_slicing_transitions_;
@@ -324,6 +343,7 @@ class EccentricOrbit : public SelfForceBackground,
   bool impose_equatorial_symmetry_{false};
   size_t time_points_{};
   std::optional<size_t> phi_points_{};
+  int sin_theta_power_{};
   };
 
 bool operator!=(const EccentricOrbit& lhs, const EccentricOrbit& rhs);

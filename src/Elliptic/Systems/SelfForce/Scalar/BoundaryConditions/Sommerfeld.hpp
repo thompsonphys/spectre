@@ -55,7 +55,9 @@ namespace ScalarSelfForce::BoundaryConditions {
  * interpolates the face points, so the face must lie at constant radius.
  *
  * Without hyperboloidal slicing, order 2 leaves out the angular derivative
- * terms and is exact only for the angular component of degree \f$l = m\f$.
+ * terms and is exact only for the angular component of degree \f$l = m\f$,
+ * and only for the field variable \f$u = \psi / \sin^{|m|}\theta\f$
+ * (`SinThetaPower: Auto` of `EccentricOrbit`).
  */
 class Sommerfeld : public elliptic::BoundaryConditions::BoundaryCondition<2> {
  private:

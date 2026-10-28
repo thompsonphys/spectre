@@ -201,7 +201,8 @@ EccentricOrbit::EccentricOrbit(
     const std::optional<std::array<double, 4>>
         hyperboloidal_slicing_transitions,
     const bool penetrating_horizon, const bool impose_equatorial_symmetry,
-    const size_t time_points, const std::optional<size_t> phi_points)
+    const size_t time_points, const std::optional<size_t> phi_points,
+    const std::optional<int> sin_theta_power)
     : black_hole_mass_(black_hole_mass),
       black_hole_spin_(black_hole_spin),
       semi_latus_rectum_(semi_latus_rectum),
@@ -212,7 +213,16 @@ EccentricOrbit::EccentricOrbit(
       penetrating_horizon_(penetrating_horizon),
       impose_equatorial_symmetry_(impose_equatorial_symmetry),
       time_points_(time_points),
-      phi_points_(phi_points) {
+      phi_points_(phi_points),
+      sin_theta_power_(sin_theta_power.value_or(std::abs(m_mode_number))) {
+  if (sin_theta_power.has_value() and
+      (*sin_theta_power < 0 or *sin_theta_power > std::abs(m_mode_number_) or
+       (std::abs(m_mode_number_) - *sin_theta_power) % 2 != 0)) {
+    ERROR("SinThetaPower (" << *sin_theta_power
+                            << ") must lie in [0, |MModeNumber|] = [0, "
+                            << std::abs(m_mode_number_)
+                            << "] and have the parity of MModeNumber.");
+  }
   if (penetrating_horizon_ and
       not hyperboloidal_slicing_transitions_.has_value()) {
     ERROR(
@@ -406,18 +416,31 @@ EccentricOrbit::variables(
       get(beta)[p] /= get<0>(alpha)[p];
     }
   }
-  get(beta) += get<1>(alpha) * (m_mode_number_ * (m_mode_number_ + 1) +
-                                2. * M / r * (1. - square(a) / M / r) +
-                                // The slicing term carries the mode frequency
-                                // k, which is m Omega_phi only for n = 0
-                                std::complex<double>(0., 2. * a) *
-                                    (m_mode_number_ + a * k * H) / r) -
-               std::complex<double>(0., k) * dH;
+  // The field is u = psi / sin(theta)^s, which gives the angular terms
+  // s (s + 1) + (m^2 - s^2) / sin(theta)^2 here and 2 s cos(theta) in gamma
+  const int s = sin_theta_power_;
+  get(beta) +=
+      get<1>(alpha) * (s * (s + 1) + 2. * M / r * (1. - square(a) / M / r) +
+                       // The slicing term carries the mode frequency
+                       // k, which is m Omega_phi only for n = 0
+                       std::complex<double>(0., 2. * a) *
+                           (m_mode_number_ + a * k * H) / r) -
+      std::complex<double>(0., k) * dH;
+  if (s != std::abs(m_mode_number_)) {
+    ASSERT(min(sin_theta_squared) > 0.,
+           "SinThetaPower " << s << " differs from |MModeNumber| = "
+                            << std::abs(m_mode_number_)
+                            << ", so the operator has the term (m^2 - s^2) / "
+                               "sin(theta)^2, which needs grid points away "
+                               "from the poles (Gauss quadrature in theta).");
+    get(beta) += get<1>(alpha) * (square(m_mode_number_) - square(s)) /
+                 sin_theta_squared;
+  }
   get<0>(gamma) =
       2. * square(a) * delta / (r * r_sq_plus_a_sq_sq) -
       std::complex<double>(0., 2. * a * m_mode_number_) / r_sq_plus_a_sq -
       std::complex<double>(0., 2. * k) * H;
-  get<1>(gamma) = 2. * m_mode_number_ * cos_theta_or_sq * get<1>(alpha);
+  get<1>(gamma) = 2. * s * cos_theta_or_sq * get<1>(alpha);
   if (impose_equatorial_symmetry_) {
     get<1>(gamma) += sin_theta_squared * get<1>(alpha);
     get<1>(gamma) *= 2.0;
@@ -502,7 +525,7 @@ EccentricOrbit::variables(
   const DataVector r_sq_plus_a_sq_sq = square(r_sq_plus_a_sq);
   const DataVector sin_theta_sq = 1. - cos_theta_sq;
   const DataVector sin_theta = sqrt(sin_theta_sq);
-  const DataVector sin_theta_pow_m = integer_pow(sin_theta, m_mode_number_);
+  const DataVector sin_theta_pow_s = integer_pow(sin_theta, sin_theta_power_);
   const DataVector delta_phi = m_mode_number_ * a / (r_plus - r_minus) *
                                log((r - r_plus) / (r - r_minus));
   const ComplexDataVector rotation =
@@ -582,10 +605,10 @@ EccentricOrbit::variables(
   const ComplexDataVector m_mode_factor = rotation * 0.5 * r / M_PI;
   // Factor Delta * (r^2 + a^2 cos^2(theta)) / Sigma^2
   // Factor Sigma^2 / (r^2 + a^2)^2 from first-order formulation
-  // Factor 1/sin(theta)^m from change of variables
+  // Factor 1/sin(theta)^s from change of variables
   get(effective_source) = effective_source_n_mode * m_mode_factor *
                           (square(r) + square(a) * cos_theta_sq) /
-                          (r_sq_plus_a_sq * sin_theta_pow_m);
+                          (r_sq_plus_a_sq * sin_theta_pow_s);
   if (not penetrating_horizon_) {
     get(effective_source) *= delta / r_sq_plus_a_sq;
   }
@@ -598,9 +621,9 @@ EccentricOrbit::variables(
     get<1>(deriv_singular_field) = 0.;
     return result;
   }
-  get(singular_field) = singular_field_n_mode * m_mode_factor / sin_theta_pow_m;
+  get(singular_field) = singular_field_n_mode * m_mode_factor / sin_theta_pow_s;
   get<0>(deriv_singular_field) =
-      deriv_r_singular_field_n_mode * m_mode_factor / sin_theta_pow_m +
+      deriv_r_singular_field_n_mode * m_mode_factor / sin_theta_pow_s +
       get(singular_field) / r -
       std::complex<double>(0., a * m_mode_number_) / delta *
           get(singular_field);
@@ -608,13 +631,13 @@ EccentricOrbit::variables(
     get<0>(deriv_singular_field) *= delta / r_sq_plus_a_sq;
   }
   get<1>(deriv_singular_field) = deriv_theta_singular_field_n_mode *
-                                 m_mode_factor / sin_theta_pow_m / (-sin_theta);
+                                 m_mode_factor / sin_theta_pow_s / (-sin_theta);
   if (impose_equatorial_symmetry_) {
     get<1>(deriv_singular_field) /= 2. * cos_theta;
   }
   {
     ComplexDataVector add_term =
-        m_mode_number_ * get(singular_field) / sin_theta_sq;
+        sin_theta_power_ * get(singular_field) / sin_theta_sq;
     if (impose_equatorial_symmetry_) {
       add_term *= 0.5;
     } else {
@@ -639,6 +662,7 @@ void EccentricOrbit::pup(PUP::er& p) {
   p | impose_equatorial_symmetry_;
   p | time_points_;
   p | phi_points_;
+  p | sin_theta_power_;
   p | t_values;
   p | r_of_t;
   p | phi_of_t;
@@ -665,7 +689,8 @@ bool operator==(const EccentricOrbit& lhs, const EccentricOrbit& rhs) {
          lhs.penetrating_horizon_ == rhs.penetrating_horizon_ and
          lhs.impose_equatorial_symmetry_ == rhs.impose_equatorial_symmetry_ and
          lhs.time_points_ == rhs.time_points_ and
-         lhs.phi_points_ == rhs.phi_points_;
+         lhs.phi_points_ == rhs.phi_points_ and
+         lhs.sin_theta_power_ == rhs.sin_theta_power_;
          }
 
 bool operator!=(const EccentricOrbit& lhs, const EccentricOrbit& rhs) {
